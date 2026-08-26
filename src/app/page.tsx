@@ -147,7 +147,7 @@ export default function Home() {
       <footer className="mt-16 border-t border-white/10 pt-6 text-xs text-white/40">
         Built for the WebMCP Challenge · every action on this page is a{" "}
         <code className="text-white/60">document.modelContext.registerTool</code> · MIT ·{" "}
-        <a className="underline hover:text-white/70" href="https://github.com/anmoln7/agent-seo-studio">
+        <a className="underline hover:text-white/70" href="https://github.com/zacaiftw/agent-seo-studio">
           source
         </a>
       </footer>

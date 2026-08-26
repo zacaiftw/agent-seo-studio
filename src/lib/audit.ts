@@ -45,7 +45,7 @@ export interface AuditResult {
 import { assertHttpScheme, assertPublicHost, BlockedUrlError } from "./ssrf";
 
 const UA =
-  "Mozilla/5.0 (compatible; AgentSEOStudio/1.0; +https://github.com/anmoln7/agent-seo-studio)";
+  "Mozilla/5.0 (compatible; AgentSEOStudio/1.0; +https://github.com/zacaiftw/agent-seo-studio)";
 
 function normalizeUrl(raw: string): string {
   const trimmed = raw.trim();
