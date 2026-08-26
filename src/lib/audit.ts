@@ -1,0 +1,250 @@
+/**
+ * The audit engine. Fetches a URL server-side and measures concrete, checkable
+ * facts about the page — never guesses. Every Finding is something we actually
+ * observed in the HTML, so a downstream fix suggestion can always be justified.
+ *
+ * This mirrors the discipline of a real GEO/AEO audit: measure first, rank
+ * second, advise third. The scorer and the fix-suggester both read from these
+ * findings and invent nothing on top of them.
+ */
+
+export interface Finding {
+  /** Stable machine tag used by the scorer's weight table. */
+  tag: string;
+  /** Human-readable, standalone sentence describing what we saw. */
+  line: string;
+  severity: "high" | "medium" | "low";
+}
+
+export interface AuditFacts {
+  url: string;
+  finalUrl: string;
+  status: number;
+  loadMs: number;
+  https: boolean;
+  title: string | null;
+  metaDescription: string | null;
+  h1Count: number;
+  wordCount: number;
+  hasViewport: boolean;
+  hasCanonical: boolean;
+  imgCount: number;
+  imgMissingAlt: number;
+  jsonLdBlocks: number;
+  jsonLdTypes: string[];
+  /** True when the raw HTML is near-empty but ships a big JS bundle — a client-rendered SPA. We flag rather than falsely report "no content". */
+  likelyClientRendered: boolean;
+  error?: string;
+}
+
+export interface AuditResult {
+  facts: AuditFacts;
+  findings: Finding[];
+}
+
+import { assertHttpScheme, assertPublicHost, BlockedUrlError } from "./ssrf";
+
+const UA =
+  "Mozilla/5.0 (compatible; AgentSEOStudio/1.0; +https://github.com/anmoln7/agent-seo-studio)";
+
+function normalizeUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return `https://${trimmed}`;
+  return trimmed;
+}
+
+/** Count words in visible-ish text: strip scripts, styles, and tags. */
+function countWords(html: string): number {
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return 0;
+  return text.split(" ").length;
+}
+
+function extractJsonLd(html: string): { blocks: number; types: string[] } {
+  const re =
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  const types = new Set<string>();
+  let blocks = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    blocks++;
+    try {
+      const parsed = JSON.parse(m[1].trim());
+      collectTypes(parsed, types);
+    } catch {
+      // A block that does not parse is itself a finding — see auditUrl.
+      types.add("(unparseable)");
+    }
+  }
+  return { blocks, types: [...types] };
+}
+
+function collectTypes(node: unknown, out: Set<string>): void {
+  if (Array.isArray(node)) {
+    node.forEach((n) => collectTypes(n, out));
+    return;
+  }
+  if (node && typeof node === "object") {
+    const t = (node as Record<string, unknown>)["@type"];
+    if (typeof t === "string") out.add(t);
+    else if (Array.isArray(t)) t.forEach((x) => typeof x === "string" && out.add(x));
+    // Recurse into @graph and nested nodes.
+    for (const v of Object.values(node as Record<string, unknown>)) {
+      if (v && typeof v === "object") collectTypes(v, out);
+    }
+  }
+}
+
+function attr(html: string, tag: string, name: string, value: string): string | null {
+  // Loose match for a tag whose `name`=`value` and pull the target attribute.
+  const re = new RegExp(
+    `<${tag}[^>]*\\b${name}=["']${value}["'][^>]*>`,
+    "i"
+  );
+  const m = re.exec(html);
+  if (!m) return null;
+  const content = /\bcontent=["']([^"']*)["']/i.exec(m[0]);
+  return content ? content[1] : "";
+}
+
+/**
+ * Fetch that follows redirects manually so every hop's host is SSRF-checked —
+ * a public URL can 302 into a private IP, which `redirect: "follow"` would
+ * chase blindly.
+ */
+async function safeFetch(url: string, signal: AbortSignal, hop = 0): Promise<Response> {
+  if (hop > 5) throw new BlockedUrlError("Too many redirects.");
+  const u = assertHttpScheme(url);
+  await assertPublicHost(u.hostname);
+
+  const res = await fetch(u, {
+    headers: { "User-Agent": UA, Accept: "text/html" },
+    redirect: "manual",
+    signal,
+  });
+
+  if (res.status >= 300 && res.status < 400) {
+    const loc = res.headers.get("location");
+    if (!loc) return res;
+    return safeFetch(new URL(loc, u).toString(), signal, hop + 1);
+  }
+  return res;
+}
+
+export async function auditUrl(raw: string): Promise<AuditResult> {
+  const url = normalizeUrl(raw);
+  const started = Date.now();
+
+  let facts: AuditFacts = {
+    url,
+    finalUrl: url,
+    status: 0,
+    loadMs: 0,
+    https: url.startsWith("https://"),
+    title: null,
+    metaDescription: null,
+    h1Count: 0,
+    wordCount: 0,
+    hasViewport: false,
+    hasCanonical: false,
+    imgCount: 0,
+    imgMissingAlt: 0,
+    jsonLdBlocks: 0,
+    jsonLdTypes: [],
+    likelyClientRendered: false,
+  };
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const res = await safeFetch(url, controller.signal);
+    clearTimeout(timeout);
+
+    const html = await res.text();
+    const loadMs = Date.now() - started;
+
+    const titleM = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+    const desc = attr(html, "meta", "name", "description");
+    const h1s = html.match(/<h1[\s>]/gi) ?? [];
+    const imgs = html.match(/<img\b[^>]*>/gi) ?? [];
+    const imgsNoAlt = imgs.filter((t) => !/\balt=/i.test(t));
+    const jsonLd = extractJsonLd(html);
+    const words = countWords(html);
+    const scriptBytes = (html.match(/<script[\s\S]*?<\/script>/gi) ?? []).join("").length;
+    // Thin visible text + a heavy JS payload is the signature of a client-rendered
+    // SPA (React/Vue/Angular). We measure the initial HTML and say so, rather than
+    // accusing a modern site of having "no content".
+    const likelyClientRendered = words < 150 && scriptBytes > 30000;
+
+    facts = {
+      ...facts,
+      finalUrl: res.url || url,
+      status: res.status,
+      loadMs,
+      https: (res.url || url).startsWith("https://"),
+      title: titleM ? titleM[1].replace(/\s+/g, " ").trim() : null,
+      metaDescription: desc && desc.length ? desc : null,
+      h1Count: h1s.length,
+      wordCount: words,
+      likelyClientRendered,
+      hasViewport: /<meta[^>]*name=["']viewport["']/i.test(html),
+      hasCanonical: /<link[^>]*rel=["']canonical["']/i.test(html),
+      imgCount: imgs.length,
+      imgMissingAlt: imgsNoAlt.length,
+      jsonLdBlocks: jsonLd.blocks,
+      jsonLdTypes: jsonLd.types,
+    };
+  } catch (e) {
+    facts.error =
+      e instanceof BlockedUrlError
+        ? `Blocked for safety: ${e.message}`
+        : e instanceof Error && e.name === "AbortError"
+        ? "Site did not respond within 12s."
+        : `Could not load the site: ${e instanceof Error ? e.message : String(e)}`;
+    return { facts, findings: [] };
+  }
+
+  return { facts, findings: deriveFindings(facts) };
+}
+
+/** Turn measured facts into ranked, standalone findings. Measure → observe only. */
+export function deriveFindings(f: AuditFacts): Finding[] {
+  const out: Finding[] = [];
+  if (f.error || f.status === 0) return out;
+
+  if (f.loadMs > 3000)
+    out.push({ tag: "speed", severity: "high", line: `Homepage took ${(f.loadMs / 1000).toFixed(1)}s to load — slow enough to lose mobile visitors.` });
+  if (!f.https)
+    out.push({ tag: "https", severity: "high", line: "Site is not served over HTTPS — browsers flag it as 'Not secure'." });
+  if (f.jsonLdBlocks === 0)
+    out.push({ tag: "schema", severity: "high", line: "No structured data (JSON-LD) found — AI assistants can't read the business's services, hours, or location in machine-readable form." });
+  if (f.jsonLdTypes.includes("(unparseable)"))
+    out.push({ tag: "schema", severity: "medium", line: "A JSON-LD block on the page is malformed and won't be read by search or AI engines." });
+  if (!f.title)
+    out.push({ tag: "meta", severity: "high", line: "Page has no <title> tag — the single most important on-page SEO signal is missing." });
+  else if (f.title.length < 15 || f.title.length > 65)
+    out.push({ tag: "meta", severity: "medium", line: `Title tag is ${f.title.length} characters — outside the 15–65 range that displays cleanly in search results.` });
+  if (!f.metaDescription)
+    out.push({ tag: "meta", severity: "medium", line: "No meta description — search and AI engines write their own snippet instead of your pitch." });
+  if (f.h1Count === 0)
+    out.push({ tag: "h1", severity: "medium", line: "Page has no <h1> heading — the main topic signal for the page is absent." });
+  else if (f.h1Count > 1)
+    out.push({ tag: "h1", severity: "low", line: `Page has ${f.h1Count} <h1> headings — ideally one, so the primary topic is unambiguous.` });
+  if (!f.hasViewport)
+    out.push({ tag: "mobile", severity: "high", line: "No mobile viewport meta tag — the site likely doesn't scale correctly on phones." });
+  if (!f.hasCanonical)
+    out.push({ tag: "canonical", severity: "low", line: "No canonical URL declared — duplicate-content signals may be split across URL variants." });
+  if (f.imgCount > 0 && f.imgMissingAlt / f.imgCount > 0.3)
+    out.push({ tag: "alt", severity: "low", line: `${f.imgMissingAlt} of ${f.imgCount} images have no alt text — hurts accessibility and image search.` });
+  if (f.likelyClientRendered)
+    out.push({ tag: "spa", severity: "medium", line: "Page renders its content with JavaScript — search crawlers and AI engines that don't run JS see a near-empty page. Measured on the initial HTML only." });
+  else if (f.wordCount < 120)
+    out.push({ tag: "thin", severity: "medium", line: `Homepage has only ~${f.wordCount} words — too thin for search or AI engines to understand what the business does.` });
+
+  return out;
+}

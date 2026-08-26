@@ -1,0 +1,29 @@
+{
+  "name": "agent-seo-studio",
+  "version": "1.0.0",
+  "description": "A WebMCP-native SEO/GEO audit studio where a human and their AI agent audit websites together.",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "tsx --test src/lib/*.test.ts",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "15.5.24",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "postcss": "^8",
+    "tailwindcss": "^4.1.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5"
+  }
+}
