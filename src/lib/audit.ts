@@ -32,6 +32,10 @@ export interface AuditFacts {
   imgMissingAlt: number;
   jsonLdBlocks: number;
   jsonLdTypes: string[];
+  /** Open Graph tags present (og:title, og:description, og:image) — controls how the page looks when shared and cited. */
+  ogTags: { title: boolean; description: boolean; image: boolean };
+  /** True when the page asks crawlers not to index it (robots meta or X-Robots-Tag). A hard block on being found at all. */
+  noindex: boolean;
   /** True when the raw HTML is near-empty but ships a big JS bundle — a client-rendered SPA. We flag rather than falsely report "no content". */
   likelyClientRendered: boolean;
   /** First ~800 chars of visible text, used only as grounding context for fix generation. Never shown as a finding. */
@@ -161,6 +165,8 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     imgMissingAlt: 0,
     jsonLdBlocks: 0,
     jsonLdTypes: [],
+    ogTags: { title: false, description: false, image: false },
+    noindex: false,
     likelyClientRendered: false,
     textSample: "",
   };
@@ -188,6 +194,12 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     // accusing a modern site of having "no content".
     const likelyClientRendered = words < 150 && scriptBytes > 30000;
 
+    // Indexability: a noindex in either the robots meta tag or the X-Robots-Tag
+    // response header keeps the page out of search and AI answers entirely.
+    const robotsMeta = attr(html, "meta", "name", "robots") ?? "";
+    const xRobots = res.headers.get("x-robots-tag") ?? "";
+    const noindex = /noindex/i.test(robotsMeta) || /noindex/i.test(xRobots);
+
     facts = {
       ...facts,
       finalUrl: res.url || url,
@@ -206,6 +218,12 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
       imgMissingAlt: imgsNoAlt.length,
       jsonLdBlocks: jsonLd.blocks,
       jsonLdTypes: jsonLd.types,
+      ogTags: {
+        title: /<meta[^>]*property=["']og:title["']/i.test(html),
+        description: /<meta[^>]*property=["']og:description["']/i.test(html),
+        image: /<meta[^>]*property=["']og:image["']/i.test(html),
+      },
+      noindex,
     };
   } catch (e) {
     facts.error =
@@ -225,6 +243,10 @@ export function deriveFindings(f: AuditFacts): Finding[] {
   const out: Finding[] = [];
   if (f.error || f.status === 0) return out;
 
+  // Indexability leads: a noindex page cannot be found by anyone, so it outranks
+  // every on-page defect.
+  if (f.noindex)
+    out.push({ tag: "noindex", severity: "high", line: "Page is set to noindex — it is actively telling Google and AI engines not to list it at all." });
   if (f.loadMs > 3000)
     out.push({ tag: "speed", severity: "high", line: `Homepage took ${(f.loadMs / 1000).toFixed(1)}s to load — slow enough to lose mobile visitors.` });
   if (!f.https)
@@ -249,6 +271,14 @@ export function deriveFindings(f: AuditFacts): Finding[] {
     out.push({ tag: "canonical", severity: "low", line: "No canonical URL declared — duplicate-content signals may be split across URL variants." });
   if (f.imgCount > 0 && f.imgMissingAlt / f.imgCount > 0.3)
     out.push({ tag: "alt", severity: "low", line: `${f.imgMissingAlt} of ${f.imgCount} images have no alt text — hurts accessibility and image search.` });
+  if (!f.ogTags.title || !f.ogTags.description || !f.ogTags.image) {
+    const missing = [
+      !f.ogTags.title && "og:title",
+      !f.ogTags.description && "og:description",
+      !f.ogTags.image && "og:image",
+    ].filter(Boolean).join(", ");
+    out.push({ tag: "og", severity: "low", line: `Missing Open Graph tags (${missing}) — links to this page show a bare, unappealing preview when shared or cited.` });
+  }
   if (f.likelyClientRendered)
     out.push({ tag: "spa", severity: "medium", line: "Page renders its content with JavaScript — search crawlers and AI engines that don't run JS see a near-empty page. Measured on the initial HTML only." });
   else if (f.wordCount < 120)

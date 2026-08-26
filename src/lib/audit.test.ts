@@ -28,6 +28,8 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     imgMissingAlt: 0,
     jsonLdBlocks: 1,
     jsonLdTypes: ["LocalBusiness"],
+    ogTags: { title: true, description: true, image: true },
+    noindex: false,
     likelyClientRendered: false,
     textSample: "We are a local business serving the community.",
     ...over,
@@ -78,6 +80,22 @@ test("a client-rendered SPA is flagged, not accused of thin content", () => {
 test("thin non-SPA content is flagged as thin", () => {
   const r = wrap(facts({ wordCount: 40, likelyClientRendered: false }));
   assert.ok(r.findings.some((f) => f.tag === "thin"));
+});
+
+test("a noindex page is the top finding — it cannot be found at all", () => {
+  const r = wrap(facts({ noindex: true }));
+  const noindex = r.findings.find((f) => f.tag === "noindex");
+  assert.ok(noindex, "expected a noindex finding");
+  assert.equal(noindex!.severity, "high");
+  const fixes = suggestFixes(r);
+  assert.equal(fixes[0].tag, "noindex", "noindex must be the #1 fix");
+});
+
+test("missing Open Graph tags are flagged, present ones are not", () => {
+  const missing = wrap(facts({ ogTags: { title: false, description: false, image: false } }));
+  assert.ok(missing.findings.some((f) => f.tag === "og"));
+  const present = wrap(facts({ ogTags: { title: true, description: true, image: true } }));
+  assert.ok(!present.findings.some((f) => f.tag === "og"));
 });
 
 test("readiness is clamped to 0–100 even when many defects stack", () => {

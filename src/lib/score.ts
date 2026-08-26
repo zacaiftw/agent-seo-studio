@@ -16,6 +16,7 @@ import type { AuditResult, Finding } from "./audit";
  * of who's reading.
  */
 const WEIGHTS: Record<string, number> = {
+  noindex: 40,
   schema: 28,
   speed: 25,
   mobile: 22,
@@ -24,6 +25,7 @@ const WEIGHTS: Record<string, number> = {
   spa: 12,
   thin: 12,
   h1: 8,
+  og: 6,
   canonical: 5,
   alt: 4,
 };
@@ -96,7 +98,7 @@ export interface Fix {
   snippet?: string;
 }
 
-const ORDER = ["schema", "speed", "mobile", "https", "meta", "spa", "thin", "h1", "canonical", "alt"];
+const ORDER = ["noindex", "schema", "speed", "mobile", "https", "meta", "spa", "thin", "h1", "og", "canonical", "alt"];
 
 export function suggestFixes(audit: AuditResult, businessName = "Your Business"): Fix[] {
   const byTag = new Map<string, Finding>();
@@ -114,6 +116,10 @@ export function suggestFixes(audit: AuditResult, businessName = "Your Business")
 
 function advice(tag: string, name: string, audit: AuditResult): { fix: string; snippet?: string } {
   switch (tag) {
+    case "noindex":
+      return { fix: 'Remove the `noindex` directive — delete `<meta name="robots" content="noindex">` (or the `X-Robots-Tag: noindex` header). The page is currently invisible to every search and AI engine.' };
+    case "og":
+      return { fix: 'Add Open Graph tags so shared links show a rich preview: `<meta property="og:title">`, `og:description`, and `og:image` in the <head>.' };
     case "schema":
       return {
         fix: "Add JSON-LD structured data so AI engines can read your services, hours, and location. Paste this into the <head>, then fill in the real values:",
