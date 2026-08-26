@@ -37,16 +37,21 @@ shape WebMCP was designed for.
 
 ### What people and agents can do together that was difficult or impossible before
 
-The unlock is **chained, comparative investigation the person couldn't script**:
+The unlock is a **chained, comparative investigation that ends in a repair** —
+something the person couldn't script and a chatbot couldn't do:
 
-> *"Audit my site, then my three competitors, rank us by AI-search readiness, and
-> tell me the one schema type they all have that I'm missing — then write it for me."*
+> *"Audit my site, compare it to my three competitors, then generate the fixes and
+> show me how much my AI-search score would improve if I applied them."*
 
-That's five tool calls the agent orchestrates — `audit_website` ×4, `compare_sites`,
-`suggest_fixes` — with the human watching each result land and steering. No generic
-SEO tool exposes that to *your* agent, and no chatbot can do it without the page's
-tools because the browser can't make those cross-origin fetches. The comparison and
-the JSON-LD it produces are things neither the human nor the agent could do alone.
+That's the agent orchestrating `audit_website` ×4, `compare_sites`,
+`generate_fixes`, and `preview_impact` — with the human watching each result land
+and steering. The finale isn't a critique, it's a **repair**: the agent generates
+ready-to-ship JSON-LD and optimized meta tags from the site's real content, and
+projects the score climbing (e.g. 31 → 83) if they're applied. The human copies
+the artifacts straight into their site. No generic SEO tool exposes that to *your*
+agent, and no chatbot can do it — the browser can't make those cross-origin
+fetches, and the fixes are grounded in HTML only the page's server could read.
+The repair is something neither the human nor the agent could produce alone.
 
 ### How we implemented WebMCP
 
@@ -58,10 +63,12 @@ core registration is the standard `document.modelContext.registerTool({ name,
 description, inputSchema, execute })` shape; `execute` returns the MCP
 `{ content: [{ type: "text", text }] }` result.
 
-The six tools: `audit_website`, `check_schema`, `score_geo`, `suggest_fixes`,
-`compare_sites`, `export_report`. There's an SSRF guard on the server fetch (blocks
-private/metadata IPs, re-checks every redirect hop) and 14 unit tests on the pure
-audit/score/fix logic.
+The eight tools: `audit_website`, `check_schema`, `score_geo`, `suggest_fixes`,
+`compare_sites`, `generate_fixes`, `preview_impact`, `export_report`. The
+generation tools are provider-agnostic (OpenAI or Anthropic) with a deterministic
+fallback, so the demo always produces valid output and never fabricates facts.
+There's an SSRF guard on the server fetch (blocks private/metadata IPs, re-checks
+every redirect hop) and 20 unit tests on the pure logic.
 
 ### Testing instructions for judges
 
@@ -108,18 +115,23 @@ land in the workspace.)*
 > every result as it happened. A chatbot can't do this; the browser blocks those
 > cross-origin fetches. The page's WebMCP tools are what make it possible."
 
-**[1:40–2:20] — Creation, not just analysis (run `suggest_fixes`)**
-> "And it doesn't stop at criticism."
+**[1:40–2:20] — The repair: create, don't just criticize (run `generate_fixes` then `preview_impact`)**
+> "Now the part that matters — it doesn't stop at criticism, it fixes the site."
 
-*(Run `suggest_fixes` → `{ "url": "example.com" }`. Show the JSON-LD snippet.)*
-> "The agent handed me ready-to-paste structured data — I can drop this straight
-> into my site's head. The human and the agent just produced a real fix together."
+*(Run `generate_fixes` → `{ "url": "example.com" }`. The Ready-to-ship panel appears.)*
+> "The agent generated complete JSON-LD structured data and optimized meta tags
+> from the site's real content — copy-paste ready."
+
+*(Run `preview_impact` → `{ "url": "example.com" }`. Point at the 31 → 83 panel.)*
+> "And here's the payoff: if I apply these fixes, this site's AI-search readiness
+> goes from 31 to 83 — a 52-point jump, projected live. The human and the agent
+> just repaired the site together."
 
 **[2:20–2:50] — How it's built**
 > "Under the hood, every action on this page is a `document.modelContext.
-> registerTool` call — six tools, all open source and MIT-licensed. They call one
-> server route that does the measurement, and the results flow into a shared
-> workspace I control."
+> registerTool` call — eight tools, all open source and MIT-licensed. They call one
+> server route that does the measurement and generation, and the results flow into
+> a shared workspace I control."
 
 **[2:50–3:00] — Close**
 > "Agent SEO Studio — where you and your agent audit the web together. Thanks for
@@ -132,7 +144,7 @@ land in the workspace.)*
 - [x] Live URL public, no auth wall — https://agent-seo-studio.vercel.app
 - [x] Public repo with MIT license detectable in About — github.com/zacaiftw/agent-seo-studio
 - [x] Required `document.modelContext.registerTool` snippet in repo (README + register-tools.ts)
-- [x] WebMCP verified: badge green, `getTools()` returns 6 tools in Chrome 149+
+- [x] WebMCP verified: badge green, `getTools()` returns 8 tools in Chrome 149+
 - [ ] Record & upload < 3-min YouTube demo (public, with audio)
 - [ ] Fill Devpost submission form with the text above
 - [ ] (Optional) Execute a tool via the Inspector on camera for the video

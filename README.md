@@ -56,7 +56,7 @@ document.modelContext.registerTool({
 });
 ```
 
-### The six tools
+### The eight tools
 
 | Tool | What the agent can do |
 |---|---|
@@ -65,7 +65,15 @@ document.modelContext.registerTool({
 | `score_geo` | Return the 0–100 GEO-readiness score and tier |
 | `suggest_fixes` | Prioritized fixes **including ready-to-paste JSON-LD** |
 | `compare_sites` | Audit 2+ sites and rank them by readiness (you vs competitors) |
+| `generate_fixes` | **Create** ready-to-ship JSON-LD + optimized meta from the site's real content |
+| `preview_impact` | Project the score **if the fixes were applied** (e.g. 31 → 83) |
 | `export_report` | Emit a shareable Markdown report of the whole workspace |
+
+**`generate_fixes` is provider-agnostic:** it uses OpenAI (`OPENAI_API_KEY`) or
+Anthropic (`ANTHROPIC_API_KEY`) to tailor copy to the site's real content when a
+key is present, and falls back to deterministic generation from the measured
+facts otherwise — so the demo always produces valid, honest output and never
+invents a phone number or address it didn't observe.
 
 ## Testing instructions (for judges)
 
@@ -92,7 +100,21 @@ npm install
 npm run dev      # http://localhost:3000
 # or a production build:
 npm run build && npm start
+npm test         # 20 unit tests on the pure audit/score/generate logic
 ```
+
+### Optional environment variables
+
+`generate_fixes` works with no config (deterministic mode). To have it tailor copy
+with an LLM, set **either**:
+
+```
+OPENAI_API_KEY=sk-...        # uses gpt-5.6-luna
+ANTHROPIC_API_KEY=sk-ant-... # uses claude-sonnet-5
+```
+
+If neither is set, generation falls back to deterministic output from the measured
+facts — always valid, never fabricated.
 
 ## Architecture
 
