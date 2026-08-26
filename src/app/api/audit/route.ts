@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auditUrl } from "@/lib/audit";
 import { scoreGeo, suggestFixes, projectScore } from "@/lib/score";
 import { generateSchema, generateMeta } from "@/lib/generate";
+import { scanMarket, analyzeGaps } from "@/lib/market";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Market scans fan out to many sites; give the function room.
+export const maxDuration = 60;
 
 /**
  * The one server endpoint behind every WebMCP tool. Runs server-side so the
@@ -16,17 +19,29 @@ export const dynamic = "force-dynamic";
  *   "generate"        — produce ready-to-ship JSON-LD + meta (the creation layer)
  */
 export async function POST(req: NextRequest) {
-  let url: string;
-  let businessName: string | undefined;
-  let action = "audit";
+  let body: Record<string, unknown>;
   try {
-    const body = await req.json();
-    url = String(body.url ?? "").trim();
-    businessName = body.businessName ? String(body.businessName) : undefined;
-    if (body.action) action = String(body.action);
+    body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
+  const action = body.action ? String(body.action) : "audit";
+
+  // Market scan doesn't take a single url — it takes a query or a list.
+  if (action === "scan") {
+    const urls = Array.isArray(body.urls) ? body.urls.map(String) : undefined;
+    const query = body.query ? String(body.query) : undefined;
+    if (!urls?.length && !query) {
+      return NextResponse.json({ error: "Provide `query` or `urls` to scan a market." }, { status: 400 });
+    }
+    const scan = await scanMarket({ urls, query });
+    const target = body.target ? String(body.target) : undefined;
+    const gaps = target ? analyzeGaps(scan, target) : null;
+    return NextResponse.json({ scan, gaps });
+  }
+
+  const url = String(body.url ?? "").trim();
+  const businessName = body.businessName ? String(body.businessName) : undefined;
   if (!url) return NextResponse.json({ error: "A `url` is required." }, { status: 400 });
 
   const audit = await auditUrl(url);
