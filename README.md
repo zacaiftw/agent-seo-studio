@@ -4,7 +4,7 @@
 
 Built for the **WebMCP Challenge**. Every meaningful action on the page is a registered WebMCP tool, so a visitor's agent can drive the entire studio while the human watches results land in a shared workspace and steers.
 
-> **Live demo:** _(add your Vercel URL here)_
+> **Live demo:** **https://agent-seo-studio.vercel.app**
 
 ---
 
