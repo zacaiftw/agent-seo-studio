@@ -1,5 +1,14 @@
 import type { AuditResult } from "./audit";
 import type { GeoScore, Fix } from "./score";
+import type { GeneratedFix } from "./generate";
+
+/** Ready-to-ship artifacts the agent generated for a site + the projected score. */
+export interface GeneratedKit {
+  schema: GeneratedFix;
+  meta: GeneratedFix;
+  before: GeoScore;
+  projected: GeoScore;
+}
 
 /** One completed audit sitting in the shared workspace the human watches. */
 export interface WorkspaceEntry {
@@ -8,6 +17,8 @@ export interface WorkspaceEntry {
   audit: AuditResult;
   score: GeoScore;
   fixes: Fix[];
+  /** Present once the agent has generated fixes for this site. */
+  generated?: GeneratedKit;
   addedAt: number;
 }
 
@@ -16,6 +27,7 @@ export interface WorkspaceEntry {
  * means the WebMCP tools never touch React directly. */
 export interface StudioBridge {
   runAudit: (url: string, businessName?: string) => Promise<WorkspaceEntry>;
+  generateFixes: (url: string) => Promise<WorkspaceEntry>;
   getWorkspace: () => WorkspaceEntry[];
   clearWorkspace: () => void;
   focus: (id: string) => void;

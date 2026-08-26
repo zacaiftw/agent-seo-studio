@@ -34,6 +34,8 @@ export interface AuditFacts {
   jsonLdTypes: string[];
   /** True when the raw HTML is near-empty but ships a big JS bundle — a client-rendered SPA. We flag rather than falsely report "no content". */
   likelyClientRendered: boolean;
+  /** First ~800 chars of visible text, used only as grounding context for fix generation. Never shown as a finding. */
+  textSample: string;
   error?: string;
 }
 
@@ -53,14 +55,17 @@ function normalizeUrl(raw: string): string {
   return trimmed;
 }
 
-/** Count words in visible-ish text: strip scripts, styles, and tags. */
-function countWords(html: string): number {
-  const text = html
+/** Strip scripts, styles, and tags down to visible-ish text. */
+function visibleText(html: string): string {
+  return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function countWords(text: string): number {
   if (!text) return 0;
   return text.split(" ").length;
 }
@@ -157,6 +162,7 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     jsonLdBlocks: 0,
     jsonLdTypes: [],
     likelyClientRendered: false,
+    textSample: "",
   };
 
   try {
@@ -174,7 +180,8 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     const imgs = html.match(/<img\b[^>]*>/gi) ?? [];
     const imgsNoAlt = imgs.filter((t) => !/\balt=/i.test(t));
     const jsonLd = extractJsonLd(html);
-    const words = countWords(html);
+    const text = visibleText(html);
+    const words = countWords(text);
     const scriptBytes = (html.match(/<script[\s\S]*?<\/script>/gi) ?? []).join("").length;
     // Thin visible text + a heavy JS payload is the signature of a client-rendered
     // SPA (React/Vue/Angular). We measure the initial HTML and say so, rather than
@@ -192,6 +199,7 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
       h1Count: h1s.length,
       wordCount: words,
       likelyClientRendered,
+      textSample: text.slice(0, 800),
       hasViewport: /<meta[^>]*name=["']viewport["']/i.test(html),
       hasCanonical: /<link[^>]*rel=["']canonical["']/i.test(html),
       imgCount: imgs.length,

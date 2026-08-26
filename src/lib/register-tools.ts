@@ -190,6 +190,67 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
     { signal }
   );
 
+  // 7. Generate — the creation beat. Produce ready-to-ship JSON-LD + meta.
+  mc.registerTool(
+    {
+      name: "generate_fixes",
+      description:
+        "Generate ready-to-ship fixes for a site: a complete JSON-LD structured-data block and an optimized <title> + meta description, tailored to the site's real content. This is creation, not just advice — the output is copy-paste ready. Adds the generated kit to the site's workspace card. Audits the site first if needed.",
+      inputSchema: {
+        type: "object",
+        properties: { url: { type: "string", description: "The website to generate fixes for." } },
+        required: ["url"],
+      },
+      execute: async ({ url }) => {
+        const entry = await ensureGenerated(bridge, String(url));
+        if (entry.audit.facts.error) return text(`Could not generate for ${entry.url}: ${entry.audit.facts.error}`);
+        const g = entry.generated!;
+        return text(
+          [
+            `Generated ready-to-ship fixes for ${entry.url} (source: ${g.schema.source}).`,
+            ``,
+            `JSON-LD structured data:`,
+            g.schema.content,
+            ``,
+            `Optimized meta tags:`,
+            g.meta.content,
+            ``,
+            `These are on the site's workspace card now. Call preview_impact for the projected score.`,
+          ].join("\n")
+        );
+      },
+    },
+    { signal }
+  );
+
+  // 8. Preview impact — the payoff: score now vs. score if fixes applied.
+  mc.registerTool(
+    {
+      name: "preview_impact",
+      description:
+        "Show the projected GEO-readiness score if the generated fixes were applied — the current score vs. the score after fixing structured data and meta tags. Turns an audit into a repair with a measurable payoff. Generates fixes first if needed.",
+      inputSchema: {
+        type: "object",
+        properties: { url: { type: "string", description: "The website to preview impact for." } },
+        required: ["url"],
+      },
+      execute: async ({ url }) => {
+        const entry = await ensureGenerated(bridge, String(url));
+        if (entry.audit.facts.error) return text(`Could not preview ${entry.url}: ${entry.audit.facts.error}`);
+        const g = entry.generated!;
+        const delta = g.projected.readiness - g.before.readiness;
+        return text(
+          `${entry.url} — projected impact of applying the generated fixes:\n\n` +
+            `Now:       ${g.before.readiness}/100 (${g.before.tier})\n` +
+            `If applied: ${g.projected.readiness}/100 (${g.projected.tier})\n` +
+            `Gain:      +${delta} points\n\n` +
+            `The fixes (JSON-LD + meta tags) are on the workspace card, ready to paste.`
+        );
+      },
+    },
+    { signal }
+  );
+
   // 6. Export — the human keeps a real artifact.
   mc.registerTool(
     {
@@ -218,6 +279,16 @@ async function ensureAudited(bridge: StudioBridge, url: string, businessName?: s
   return bridge.runAudit(url, businessName);
 }
 
+/** Ensure the site is audited AND has generated fixes attached. */
+async function ensureGenerated(bridge: StudioBridge, url: string): Promise<WorkspaceEntry> {
+  const existing = bridge.getWorkspace().find((e) => normalize(e.url) === normalize(url));
+  if (existing?.generated) {
+    bridge.focus(existing.id);
+    return existing;
+  }
+  return bridge.generateFixes(url);
+}
+
 function normalize(u: string): string {
   return u.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
 }
@@ -238,6 +309,23 @@ function buildReport(ws: WorkspaceEntry[]): string {
       lines.push(`${f.priority}. **${f.tag}** — ${f.fix}`);
       if (f.snippet) lines.push("", "```json", f.snippet, "```", "");
     });
+    if (e.generated) {
+      const g = e.generated;
+      lines.push(
+        "",
+        `**Ready-to-ship fixes** (source: ${g.schema.source}) — projected score ${g.before.readiness} → ${g.projected.readiness}:`,
+        "",
+        "JSON-LD:",
+        "```json",
+        g.schema.content,
+        "```",
+        "",
+        "Meta tags:",
+        "```html",
+        g.meta.content,
+        "```"
+      );
+    }
     lines.push("");
   }
   return lines.join("\n");

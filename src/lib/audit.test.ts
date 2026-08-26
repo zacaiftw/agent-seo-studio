@@ -29,6 +29,7 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     jsonLdBlocks: 1,
     jsonLdTypes: ["LocalBusiness"],
     likelyClientRendered: false,
+    textSample: "We are a local business serving the community.",
     ...over,
   };
 }

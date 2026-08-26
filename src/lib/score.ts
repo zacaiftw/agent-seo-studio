@@ -71,6 +71,18 @@ export function scoreGeo(audit: AuditResult): GeoScore {
 }
 
 /**
+ * Project the readiness score as if a set of finding tags were fixed. Used by
+ * the preview_fixes tool to show "31 now → 88 if you apply these" — the payoff
+ * that turns an audit into a repair. Deterministic: just re-score without the
+ * fixed tags' weight.
+ */
+export function projectScore(audit: AuditResult, fixedTags: string[]): GeoScore {
+  const fixed = new Set(fixedTags);
+  const remaining = audit.findings.filter((f) => !fixed.has(f.tag));
+  return scoreGeo({ facts: audit.facts, findings: remaining });
+}
+
+/**
  * Prioritized, actionable fixes derived only from measured findings. Where the
  * fix is structured data, we emit a ready-to-paste JSON-LD stub so the human and
  * agent produce a real artifact together, not just a critique.

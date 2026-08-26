@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AuditResult } from "@/lib/audit";
 import type { GeoScore, Fix } from "@/lib/score";
-import type { StudioBridge, WorkspaceEntry } from "@/lib/mcp-types";
+import type { GeneratedFix } from "@/lib/generate";
+import type { StudioBridge, WorkspaceEntry, GeneratedKit } from "@/lib/mcp-types";
 import { registerStudioTools } from "@/lib/register-tools";
 
 async function callAudit(url: string, businessName?: string) {
@@ -14,6 +15,22 @@ async function callAudit(url: string, businessName?: string) {
   });
   if (!res.ok) throw new Error(`Audit failed (${res.status})`);
   return (await res.json()) as { audit: AuditResult; score: GeoScore; fixes: Fix[] };
+}
+
+async function callGenerate(url: string) {
+  const res = await fetch("/api/audit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, action: "generate" }),
+  });
+  if (!res.ok) throw new Error(`Generate failed (${res.status})`);
+  return (await res.json()) as {
+    audit: AuditResult;
+    generated?: { schema: GeneratedFix; meta: GeneratedFix };
+    before?: GeoScore;
+    projected?: GeoScore;
+    error?: string;
+  };
 }
 
 export default function Home() {
@@ -40,11 +57,29 @@ export default function Home() {
     return entry;
   }, []);
 
+  const generateFixes = useCallback(
+    async (url: string): Promise<WorkspaceEntry> => {
+      // Make sure the site is in the workspace first (audit if new).
+      let entry = wsRef.current.find((e) => sameHost(e.url, url));
+      if (!entry) entry = await runAudit(url);
+
+      const { generated, before, projected } = await callGenerate(entry.url);
+      if (!generated || !before || !projected) return entry;
+      const kit: GeneratedKit = { schema: generated.schema, meta: generated.meta, before, projected };
+      const updated: WorkspaceEntry = { ...entry, generated: kit };
+      setWorkspace((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+      setFocusedId(updated.id);
+      return updated;
+    },
+    [runAudit]
+  );
+
   // Register WebMCP tools once the API exists in this browser.
   useEffect(() => {
     if (typeof document === "undefined" || !document.modelContext) return;
     const bridge: StudioBridge = {
       runAudit,
+      generateFixes,
       getWorkspace: () => wsRef.current,
       clearWorkspace: () => setWorkspace([]),
       focus: (id) => setFocusedId(id),
@@ -52,7 +87,7 @@ export default function Home() {
     const controller = registerStudioTools(document.modelContext, bridge);
     setMcpReady(true);
     return () => controller.abort();
-  }, [runAudit]);
+  }, [runAudit, generateFixes]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,7 +176,7 @@ export default function Home() {
           )}
         </aside>
 
-        <section>{focused ? <Detail entry={focused} /> : <Empty />}</section>
+        <section>{focused ? <Detail entry={focused} onGenerate={generateFixes} /> : <Empty />}</section>
       </div>
 
       <footer className="mt-16 border-t border-white/10 pt-6 text-xs text-white/40">
@@ -163,8 +198,9 @@ function Empty() {
   );
 }
 
-function Detail({ entry }: { entry: WorkspaceEntry }) {
+function Detail({ entry, onGenerate }: { entry: WorkspaceEntry; onGenerate: (url: string) => Promise<WorkspaceEntry> }) {
   const { audit, score, fixes } = entry;
+  const [generating, setGenerating] = useState(false);
   if (audit.facts.error) {
     return (
       <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6">
@@ -230,6 +266,101 @@ function Detail({ entry }: { entry: WorkspaceEntry }) {
           </ol>
         </div>
       )}
+
+      {audit.findings.length > 0 && !entry.generated && (
+        <button
+          onClick={async () => {
+            setGenerating(true);
+            try {
+              await onGenerate(entry.url);
+            } finally {
+              setGenerating(false);
+            }
+          }}
+          disabled={generating}
+          className="w-full rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm font-medium text-emerald-200 transition hover:bg-emerald-400/15 disabled:opacity-50"
+        >
+          {generating ? "Generating fixes…" : "✨ Generate ready-to-ship fixes with the agent"}
+        </button>
+      )}
+
+      {entry.generated && <GeneratedPanel kit={entry.generated} />}
+    </div>
+  );
+}
+
+function GeneratedPanel({ kit }: { kit: GeneratedKit }) {
+  const delta = kit.projected.readiness - kit.before.readiness;
+  const srcLabel =
+    kit.schema.source === "deterministic" ? "template" : kit.schema.source === "llm-openai" ? "OpenAI" : "Claude";
+  return (
+    <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/[0.06] p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-emerald-300/70">
+          Ready-to-ship fixes
+        </h4>
+        <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wider text-white/40">
+          generated by {srcLabel}
+        </span>
+      </div>
+
+      {/* Before → after projected score */}
+      <div className="mb-5 flex items-center gap-4">
+        <div className="text-center">
+          <div className={`text-2xl font-semibold tabular-nums ${scoreText(kit.before.readiness)}`}>
+            {kit.before.readiness}
+          </div>
+          <div className="text-[10px] uppercase tracking-wider text-white/40">now</div>
+        </div>
+        <div className="text-white/30">→</div>
+        <div className="text-center">
+          <div className={`text-2xl font-semibold tabular-nums ${scoreText(kit.projected.readiness)}`}>
+            {kit.projected.readiness}
+          </div>
+          <div className="text-[10px] uppercase tracking-wider text-white/40">if applied</div>
+        </div>
+        {delta > 0 && (
+          <div className="ml-auto rounded-full bg-emerald-400/15 px-3 py-1 text-sm font-medium text-emerald-300">
+            +{delta} points
+          </div>
+        )}
+      </div>
+
+      <Artifact label="JSON-LD structured data" content={kit.schema.content} lang="json" />
+      <div className="mt-3">
+        <Artifact label="Optimized meta tags" content={kit.meta.content} lang="html" before={kit.meta.before} />
+      </div>
+    </div>
+  );
+}
+
+function Artifact({ label, content, before }: { label: string; content: string; lang: string; before?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="text-xs font-medium text-white/60">{label}</span>
+        <button
+          onClick={() => {
+            navigator.clipboard?.writeText(content).then(
+              () => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              },
+              () => {}
+            );
+          }}
+          className="text-[11px] text-emerald-300/80 hover:text-emerald-200"
+        >
+          {copied ? "copied ✓" : "copy"}
+        </button>
+      </div>
+      {before && (
+        <pre className="mb-2 overflow-x-auto rounded-lg bg-red-500/5 p-3 text-xs text-red-300/60 line-through decoration-red-400/30">
+          {before}
+        </pre>
+      )}
+      <pre className="overflow-x-auto rounded-lg bg-black/40 p-3 text-xs text-emerald-200/90">{content}</pre>
     </div>
   );
 }
@@ -239,6 +370,10 @@ function ScoreDot({ score, error }: { score: number; error: boolean }) {
   return <span className={`text-xs font-semibold tabular-nums ${scoreText(score)}`}>{score}</span>;
 }
 
+function sameHost(a: string, b: string): boolean {
+  const n = (u: string) => u.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
+  return n(a) === n(b);
+}
 function prettyHost(url: string): string {
   try {
     return new URL(url.startsWith("http") ? url : `https://${url}`).host.replace(/^www\./, "");
