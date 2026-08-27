@@ -5,7 +5,20 @@ import type { AuditResult } from "@/lib/audit";
 import type { GeoScore, Fix } from "@/lib/score";
 import type { GeneratedFix } from "@/lib/generate";
 import type { StudioBridge, WorkspaceEntry, GeneratedKit } from "@/lib/mcp-types";
+import type { MarketScan, GapAnalysis } from "@/lib/market";
 import { registerStudioTools } from "@/lib/register-tools";
+
+type MarketState = (MarketScan & { gaps?: GapAnalysis | null }) | null;
+
+async function callScan(input: { query?: string; urls?: string[]; target?: string }) {
+  const res = await fetch("/api/audit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "scan", ...input }),
+  });
+  if (!res.ok) throw new Error(`Scan failed (${res.status})`);
+  return (await res.json()) as { scan: MarketScan; gaps?: GapAnalysis | null };
+}
 
 async function callAudit(url: string, businessName?: string) {
   const res = await fetch("/api/audit", {
@@ -39,6 +52,8 @@ export default function Home() {
   const [mcpReady, setMcpReady] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [market, setMarket] = useState<MarketState>(null);
+  const [scanning, setScanning] = useState(false);
   const wsRef = useRef<WorkspaceEntry[]>([]);
   wsRef.current = workspace;
 
@@ -74,12 +89,39 @@ export default function Home() {
     [runAudit]
   );
 
+  const runScan = useCallback(async (input: { query?: string; urls?: string[]; target?: string }) => {
+    const { scan, gaps } = await callScan(input);
+    const state = { ...scan, gaps };
+    setMarket(state);
+    return state;
+  }, []);
+
+  const verifyFix = useCallback(async (url: string) => {
+    const prev = wsRef.current.find((e) => sameHost(e.url, url));
+    const before = prev?.score.readiness ?? 0;
+    const { audit, score } = await callAudit(url);
+    const entry: WorkspaceEntry = {
+      id: prev?.id ?? String(Date.now() + Math.random()),
+      url: audit.facts.finalUrl || url,
+      audit,
+      score,
+      fixes: prev?.fixes ?? [],
+      generated: prev?.generated,
+      addedAt: prev?.addedAt ?? Date.now(),
+    };
+    setWorkspace((w) => (prev ? w.map((e) => (e.id === entry.id ? entry : e)) : [entry, ...w]));
+    setFocusedId(entry.id);
+    return { before, after: score.readiness, changed: score.readiness !== before, tier: score.tier };
+  }, []);
+
   // Register WebMCP tools once the API exists in this browser.
   useEffect(() => {
     if (typeof document === "undefined" || !document.modelContext) return;
     const bridge: StudioBridge = {
       runAudit,
       generateFixes,
+      scanMarket: runScan,
+      verifyFix,
       getWorkspace: () => wsRef.current,
       clearWorkspace: () => setWorkspace([]),
       focus: (id) => setFocusedId(id),
@@ -87,7 +129,7 @@ export default function Home() {
     const controller = registerStudioTools(document.modelContext, bridge);
     setMcpReady(true);
     return () => controller.abort();
-  }, [runAudit, generateFixes]);
+  }, [runAudit, generateFixes, runScan, verifyFix]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,6 +187,25 @@ export default function Home() {
         </button>
       </form>
 
+      <MarketScanBar
+        scanning={scanning}
+        onScan={async (input) => {
+          setScanning(true);
+          try {
+            // Looks like a list of domains? Scan those directly (reliable, no discovery).
+            const urls = input.split(/[,\s]+/).filter((s) => /\.[a-z]{2,}/i.test(s));
+            if (urls.length >= 2) await runScan({ urls });
+            else await runScan({ query: input });
+          } catch (err) {
+            alert(err instanceof Error ? err.message : "Scan failed");
+          } finally {
+            setScanning(false);
+          }
+        }}
+      />
+
+      {market && <MarketLeaderboard market={market} />}
+
       <div className="grid gap-6 md:grid-cols-[280px_1fr]">
         <aside>
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-white/40">
@@ -187,6 +248,92 @@ export default function Home() {
         </a>
       </footer>
     </main>
+  );
+}
+
+function MarketScanBar({ scanning, onScan }: { scanning: boolean; onScan: (q: string) => void }) {
+  const [q, setQ] = useState("");
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (q.trim() && !scanning) onScan(q.trim());
+      }}
+      className="mb-6 flex gap-2"
+    >
+      <div className="flex flex-1 items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/[0.04] px-4">
+        <span className="text-sm">🌐</span>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Scan a market — “hair salon in Santa Monica”, or paste competitor URLs"
+          className="flex-1 bg-transparent py-2.5 text-sm outline-none placeholder:text-emerald-200/30"
+          aria-label="Market to scan"
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={scanning}
+        className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-5 py-2.5 text-sm font-medium text-emerald-200 transition hover:bg-emerald-400/15 disabled:opacity-50"
+      >
+        {scanning ? "Scanning market…" : "Scan market"}
+      </button>
+    </form>
+  );
+}
+
+function MarketLeaderboard({ market }: { market: MarketScan & { gaps?: GapAnalysis | null } }) {
+  if (market.ranked.length === 0) {
+    return (
+      <div className="mb-6 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] p-4 text-sm text-amber-200/80">
+        {market.discoveryNote || "No sites found for that market."}
+      </div>
+    );
+  }
+  const top = market.ranked[0].score.readiness;
+  return (
+    <div className="mb-8 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.04] p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-emerald-200">
+          Market leaderboard{market.place ? ` — ${market.place}` : ""}
+        </h3>
+        <span className="text-xs text-white/40">{market.ranked.length} sites · agent-fetched server-side</span>
+      </div>
+      <ol className="space-y-1.5">
+        {market.ranked.map((e, i) => (
+          <li key={e.url} className="flex items-center gap-3 text-sm">
+            <span className="w-5 text-right text-white/30 tabular-nums">{i + 1}</span>
+            <span className="w-24 shrink-0 text-white/50">
+              {e.audit.facts.error ? (
+                <span className="text-red-400/60">did not load</span>
+              ) : (
+                <span className={`font-semibold tabular-nums ${scoreText(e.score.readiness)}`}>{e.score.readiness}/100</span>
+              )}
+            </span>
+            <div className="hidden h-1.5 flex-1 overflow-hidden rounded-full bg-white/5 sm:block">
+              {!e.audit.facts.error && (
+                <div className={`h-full ${barColor(e.score.readiness)}`} style={{ width: `${(e.score.readiness / (top || 100)) * 100}%` }} />
+              )}
+            </div>
+            <span className="truncate text-white/70">{prettyHost(e.url)}</span>
+          </li>
+        ))}
+      </ol>
+
+      {market.gaps && (
+        <div className="mt-5 rounded-lg border border-white/10 bg-black/20 p-4">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-emerald-300/70">Gap analysis</h4>
+          <ul className="space-y-1.5 text-sm text-white/75">
+            {market.gaps.summary.map((s, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="text-emerald-400/60">›</span>
+                <span>{s}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 

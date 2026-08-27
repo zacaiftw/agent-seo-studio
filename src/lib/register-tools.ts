@@ -190,6 +190,95 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
     { signal }
   );
 
+  // 9. Scan market — the WebMCP-exclusive move. Audit a whole local market.
+  mc.registerTool(
+    {
+      name: "scan_market",
+      description:
+        "Audit an entire local market at once and rank every business by GEO-readiness. Pass a plain-language query like 'day spa in Santa Monica' to auto-discover the businesses (via OpenStreetMap), or pass an explicit list of competitor URLs. This does what a browser can't — fetch and measure dozens of sites server-side in one call. Optionally pass a target site to get a gap analysis vs. the market leaders.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: 'A market to scan, e.g. "hair salon in Austin" or "dentist in Miami". Auto-discovers local businesses with websites.' },
+          urls: { type: "array", items: { type: "string" }, description: "Explicit list of competitor URLs to scan instead of (or in addition to) a query." },
+          target: { type: "string", description: "Optional: your own site, to get a gap analysis vs. the market leaders." },
+        },
+        required: [],
+      },
+      execute: async ({ query, urls, target }) => {
+        const result = await bridge.scanMarket({
+          query: query ? String(query) : undefined,
+          urls: Array.isArray(urls) ? urls.map(String) : undefined,
+          target: target ? String(target) : undefined,
+        });
+        if (result.ranked.length === 0) {
+          return text(result.discoveryNote || "No sites found to scan. Pass explicit URLs or a clearer market query.");
+        }
+        const rows = result.ranked
+          .map((e, i) => `${i + 1}. ${e.score.readiness}/100 — ${host(e.url)}${e.audit.facts.error ? " [did not load]" : ""}`)
+          .join("\n");
+        const gapText = result.gaps ? `\n\nGap analysis:\n${result.gaps.summary.map((s) => `• ${s}`).join("\n")}` : "";
+        return text(
+          `Scanned ${result.ranked.length} sites${result.place ? ` in ${result.place}` : ""}. GEO-readiness ranking:\n${rows}${gapText}\n\nThe full leaderboard is on screen. Call analyze_gaps with a target for a catch-up plan, or scan again with more competitors.`
+        );
+      },
+    },
+    { signal }
+  );
+
+  // 10. Analyze gaps — why the leaders win, for a specific target.
+  mc.registerTool(
+    {
+      name: "analyze_gaps",
+      description:
+        "After a market scan, explain what the market leaders do that a specific target site doesn't — which structured-data types they share that it lacks, and which issues it still has that they've fixed. Requires a scan to have run first (scan again with the target if needed).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          target: { type: "string", description: "The site to analyze against the market leaders." },
+          query: { type: "string", description: "Optional: re-scan this market first if none is loaded." },
+        },
+        required: ["target"],
+      },
+      execute: async ({ target, query }) => {
+        const result = await bridge.scanMarket({
+          query: query ? String(query) : undefined,
+          target: String(target),
+        });
+        if (!result.gaps) {
+          return text(`Couldn't analyze gaps for ${host(String(target))} — need a market of at least 3 loaded sites with the target included. Run scan_market with a query and this target.`);
+        }
+        return text(`Gap analysis — ${host(String(target))} vs. market leaders:\n\n${result.gaps.summary.join("\n\n")}`);
+      },
+    },
+    { signal }
+  );
+
+  // 11. Verify fix — close the loop: re-fetch and prove the score changed.
+  mc.registerTool(
+    {
+      name: "verify_fix",
+      description:
+        "Re-audit a site live and report whether its GEO-readiness score actually changed since the last audit in this session — the proof step after someone applies the fixes. Turns a projected improvement into a measured one.",
+      inputSchema: {
+        type: "object",
+        properties: { url: { type: "string", description: "The site to re-audit and compare against its earlier score." } },
+        required: ["url"],
+      },
+      execute: async ({ url }) => {
+        const r = await bridge.verifyFix(String(url));
+        const delta = r.after - r.before;
+        if (!r.changed) {
+          return text(`Re-audited ${host(String(url))}: still ${r.after}/100 (${r.tier}). No change detected yet — if you just applied fixes, give the deploy a moment and try again.`);
+        }
+        return text(
+          `Re-audited ${host(String(url))} live: ${r.before} → ${r.after}/100 (${r.tier}), a ${delta >= 0 ? "+" : ""}${delta}-point change. This is a measured re-fetch, not a projection.`
+        );
+      },
+    },
+    { signal }
+  );
+
   // 7. Generate — the creation beat. Produce ready-to-ship JSON-LD + meta.
   mc.registerTool(
     {
@@ -291,6 +380,14 @@ async function ensureGenerated(bridge: StudioBridge, url: string): Promise<Works
 
 function normalize(u: string): string {
   return u.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
+}
+
+function host(u: string): string {
+  try {
+    return new URL(u.startsWith("http") ? u : `https://${u}`).host.replace(/^www\./, "");
+  } catch {
+    return u;
+  }
 }
 
 function buildReport(ws: WorkspaceEntry[]): string {

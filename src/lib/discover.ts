@@ -113,13 +113,16 @@ export async function discoverMarket(query: string, max = 25): Promise<DiscoverR
 /** Query Overpass across mirrors; returns parsed JSON or null (busy / non-JSON / all failed). */
 async function queryOverpass(ql: string): Promise<{ elements?: { tags?: Record<string, string> }[] } | null> {
   const body = "data=" + encodeURIComponent(ql);
+  const deadline = Date.now() + 20000; // hard cap across all mirrors — fail fast, don't hang the UI
   for (const url of OVERPASS_MIRRORS) {
+    const remaining = deadline - Date.now();
+    if (remaining < 2000) break;
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
         body,
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(Math.min(9000, remaining)),
       });
       if (!res.ok) continue;
       // Overpass returns an HTML load page (not JSON) when busy — detect and try the next mirror.

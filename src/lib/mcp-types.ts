@@ -28,6 +28,8 @@ export interface WorkspaceEntry {
 export interface StudioBridge {
   runAudit: (url: string, businessName?: string) => Promise<WorkspaceEntry>;
   generateFixes: (url: string) => Promise<WorkspaceEntry>;
+  scanMarket: (input: { query?: string; urls?: string[]; target?: string }) => Promise<import("./market").MarketScan & { gaps?: import("./market").GapAnalysis | null }>;
+  verifyFix: (url: string) => Promise<{ before: number; after: number; changed: boolean; tier: string }>;
   getWorkspace: () => WorkspaceEntry[];
   clearWorkspace: () => void;
   focus: (id: string) => void;
