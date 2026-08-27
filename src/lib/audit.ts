@@ -38,6 +38,9 @@ export interface AuditFacts {
    * detected across the HTML and its linked scripts. Best-effort: tools register at runtime, so this is
    * a signal a raw fetch can see, not a guarantee. The "can the agent finish the job?" dimension. */
   agentReady: boolean;
+  /** Best-effort location + business type pulled from the site's JSON-LD, so we
+   * can auto-find its local competitors. Null when the site doesn't declare it. */
+  detected: { city: string | null; region: string | null; businessType: string | null };
   /** Raw affordance signals for the mystery-shopper journey check. What an agent
    * could grab hold of to complete a task: forms, contact links, and known
    * booking/commerce platform fingerprints. Populated from the initial HTML. */
@@ -89,10 +92,15 @@ function countWords(text: string): number {
   return text.split(" ").length;
 }
 
-function extractJsonLd(html: string): { blocks: number; types: string[] } {
+function extractJsonLd(html: string): {
+  blocks: number;
+  types: string[];
+  detected: AuditFacts["detected"];
+} {
   const re =
     /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   const types = new Set<string>();
+  const detected: AuditFacts["detected"] = { city: null, region: null, businessType: null };
   let blocks = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
@@ -100,12 +108,42 @@ function extractJsonLd(html: string): { blocks: number; types: string[] } {
     try {
       const parsed = JSON.parse(m[1].trim());
       collectTypes(parsed, types);
+      collectLocation(parsed, detected);
     } catch {
       // A block that does not parse is itself a finding — see auditUrl.
       types.add("(unparseable)");
     }
   }
-  return { blocks, types: [...types] };
+  return { blocks, types: [...types], detected };
+}
+
+/** Business types we consider "local" enough to search OSM for. */
+const LOCAL_BUSINESS_TYPES = /LocalBusiness|Store|Restaurant|Dentist|Physician|BeautySalon|HairSalon|DaySpa|HealthClub|Bakery|Cafe|MedicalBusiness|ProfessionalService|HomeAndConstructionBusiness|AutomotiveBusiness/i;
+
+/** Walk JSON-LD for the first PostalAddress and a local business @type. */
+function collectLocation(node: unknown, out: AuditFacts["detected"]): void {
+  if (Array.isArray(node)) {
+    node.forEach((n) => collectLocation(n, out));
+    return;
+  }
+  if (!node || typeof node !== "object") return;
+  const o = node as Record<string, unknown>;
+
+  const t = o["@type"];
+  const typeStr = Array.isArray(t) ? t.find((x) => typeof x === "string") : t;
+  if (!out.businessType && typeof typeStr === "string" && LOCAL_BUSINESS_TYPES.test(typeStr)) {
+    out.businessType = typeStr;
+  }
+
+  const addr = o["address"];
+  const addrObj = Array.isArray(addr) ? addr[0] : addr;
+  if (addrObj && typeof addrObj === "object") {
+    const a = addrObj as Record<string, unknown>;
+    if (!out.city && typeof a["addressLocality"] === "string") out.city = a["addressLocality"];
+    if (!out.region && typeof a["addressRegion"] === "string") out.region = a["addressRegion"];
+  }
+
+  for (const v of Object.values(o)) if (v && typeof v === "object") collectLocation(v, out);
 }
 
 function collectTypes(node: unknown, out: Set<string>): void {
@@ -238,6 +276,7 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     jsonLdTypes: [],
     ogTags: { title: false, description: false, image: false },
     agentReady: false,
+    detected: { city: null, region: null, businessType: null },
     affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
     noindex: false,
     likelyClientRendered: false,
@@ -307,6 +346,7 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
         image: /<meta[^>]*property=["']og:image["']/i.test(html),
       },
       agentReady,
+      detected: jsonLd.detected,
       affordances,
       noindex,
     };

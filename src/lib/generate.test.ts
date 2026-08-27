@@ -29,7 +29,7 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     jsonLdTypes: [],
     ogTags: { title: true, description: true, image: true },
     agentReady: true,
-    affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
+    detected: { city: null, region: null, businessType: null }, affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
     noindex: false,
     likelyClientRendered: false,
     textSample: "Example Bakery bakes fresh sourdough and pastries in downtown daily.",

@@ -17,7 +17,7 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     title: "A fine title for the test page", metaDescription: "d", h1Count: 1, wordCount: 800,
     hasViewport: true, hasCanonical: true, imgCount: 0, imgMissingAlt: 0, jsonLdBlocks: 1,
     jsonLdTypes: ["LocalBusiness"], ogTags: { title: true, description: true, image: true },
-    agentReady: false, affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
+    agentReady: false, detected: { city: null, region: null, businessType: null }, affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
     noindex: false, likelyClientRendered: false, textSample: "s", ...over,
   };
 }

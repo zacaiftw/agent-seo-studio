@@ -67,6 +67,23 @@ function tagsFor(kind: string): { tags: string[]; matched: boolean } {
   return { tags: ['"shop"'], matched: false };
 }
 
+/** Map a schema.org business @type to a plain search kind our category map understands. */
+const SCHEMA_TYPE_TO_KIND: { match: RegExp; kind: string }[] = [
+  { match: /BeautySalon|HairSalon/i, kind: "salon" },
+  { match: /DaySpa/i, kind: "spa" },
+  { match: /Dentist/i, kind: "dentist" },
+  { match: /Physician|MedicalBusiness/i, kind: "clinic" },
+  { match: /HealthClub/i, kind: "gym" },
+  { match: /Restaurant|Cafe|Bakery/i, kind: "restaurant" },
+  { match: /AutomotiveBusiness/i, kind: "auto repair" },
+];
+
+export function schemaTypeToKind(businessType: string | null): string | null {
+  if (!businessType) return null;
+  for (const m of SCHEMA_TYPE_TO_KIND) if (m.match.test(businessType)) return m.kind;
+  return null; // a generic ProfessionalService/LocalBusiness isn't specific enough to search
+}
+
 /** Discover local businesses with websites for a query. Returns [] rather than throwing. */
 export async function discoverMarket(query: string, max = 25): Promise<DiscoverResult> {
   const { kind, place } = parseQuery(query);

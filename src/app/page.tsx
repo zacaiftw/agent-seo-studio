@@ -11,14 +11,19 @@ import type { MarketReport, Payoff } from "@/lib/report";
 import { registerStudioTools } from "@/lib/register-tools";
 import { sameHost, prettyHost } from "@/lib/url";
 
-async function callReport(target: string, competitors: string[], goal: Goal) {
+async function callReport(target: string, competitors: string[], goal: Goal, query?: string) {
   const res = await fetch("/api/audit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "report", target, competitors, goal }),
+    body: JSON.stringify({ action: "report", target, competitors, goal, query }),
   });
   if (!res.ok) throw new Error(`Report failed (${res.status})`);
-  return (await res.json()) as { report: MarketReport; scan: MarketScan };
+  return (await res.json()) as {
+    report: MarketReport;
+    scan: MarketScan;
+    detected?: { city: string | null; kind: string | null };
+    needsMarket?: boolean;
+  };
 }
 
 async function callJourney(url: string, goal: Goal) {
@@ -80,6 +85,8 @@ export default function Home() {
   const [journey, setJourney] = useState<JourneyReport | null>(null);
   const [report, setReport] = useState<MarketReport | null>(null);
   const [reportBusy, setReportBusy] = useState(false);
+  const [needsMarket, setNeedsMarket] = useState(false);
+  const [detectedCity, setDetectedCity] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const wsRef = useRef<WorkspaceEntry[]>([]);
   wsRef.current = workspace;
@@ -181,11 +188,13 @@ export default function Home() {
 
   const focused = workspace.find((e) => e.id === focusedId) ?? workspace[0] ?? null;
 
-  const runReport = async (target: string, competitors: string[], goal: Goal) => {
+  const runReport = async (target: string, competitors: string[], goal: Goal, query?: string) => {
     setReportBusy(true);
     try {
-      const { report } = await callReport(target, competitors, goal);
+      const { report, needsMarket, detected } = await callReport(target, competitors, goal, query);
       setReport(report);
+      setNeedsMarket(!!needsMarket);
+      setDetectedCity(detected?.city ?? null);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Report failed");
     } finally {
@@ -214,7 +223,7 @@ export default function Home() {
         </p>
       </header>
 
-      <OwnerReport report={report} busy={reportBusy} onRun={runReport} />
+      <OwnerReport report={report} busy={reportBusy} onRun={runReport} needsMarket={needsMarket} detectedCity={detectedCity} />
 
       <div className="mt-10 border-t border-white/10 pt-6">
         <button
@@ -377,21 +386,40 @@ function OwnerReport({
   report,
   busy,
   onRun,
+  needsMarket,
+  detectedCity,
 }: {
   report: MarketReport | null;
   busy: boolean;
-  onRun: (target: string, competitors: string[], goal: Goal) => void;
+  onRun: (target: string, competitors: string[], goal: Goal, query?: string) => void;
+  needsMarket: boolean;
+  detectedCity: string | null;
 }) {
   const [site, setSite] = useState("");
-  const [comps, setComps] = useState("");
   const [goal, setGoal] = useState<Goal>("book");
   const [tab, setTab] = useState<TabKey>("bookable");
+  const [kind, setKind] = useState("");
+  const [city, setCity] = useState("");
+  const [urls, setUrls] = useState("");
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!site.trim() || busy) return;
-    const competitors = comps.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
-    onRun(site.trim(), competitors, goal);
+    onRun(site.trim(), [], goal); // no competitors -> server auto-detects
+  };
+
+  const submitMarket = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!site.trim() || busy) return;
+    // Pasted URLs are the reliable path — prefer them if given.
+    const pasted = urls.split(/[,\s]+/).map((s) => s.trim()).filter((s) => /\.[a-z]{2,}/i.test(s));
+    if (pasted.length > 0) {
+      onRun(site.trim(), pasted, goal);
+      return;
+    }
+    const c = (city || detectedCity || "").trim();
+    if (!kind.trim() || !c) return;
+    onRun(site.trim(), [], goal, `${kind.trim()} in ${c}`);
   };
 
   const payoff = report ? report[tab] : null;
@@ -399,19 +427,12 @@ function OwnerReport({
 
   return (
     <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent p-6 sm:p-8">
-      <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+      <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[1fr_auto]">
         <input
           value={site}
           onChange={(e) => setSite(e.target.value)}
           placeholder="Your website (e.g. yoursalon.com)"
           aria-label="Your website"
-          className="rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm outline-none focus:border-white/30"
-        />
-        <input
-          value={comps}
-          onChange={(e) => setComps(e.target.value)}
-          placeholder="Competitor sites (comma-separated)"
-          aria-label="Competitor sites"
           className="rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm outline-none focus:border-white/30"
         />
         <div className="flex gap-2">
@@ -439,8 +460,51 @@ function OwnerReport({
 
       {!report && !busy && (
         <p className="mt-5 text-center text-sm text-white/40">
-          Enter your site and a competitor or two. We&rsquo;ll show you what an AI agent sees when it shops your market.
+          Just enter your site — we&rsquo;ll find your local competitors automatically and show you what an AI agent sees.
         </p>
+      )}
+
+      {/* Fallback: we couldn't detect the market from the site alone. */}
+      {report && needsMarket && (
+        <form onSubmit={submitMarket} className="mt-5 rounded-xl border border-amber-400/25 bg-amber-400/[0.05] p-4">
+          <p className="mb-3 text-sm text-amber-100/90">
+            We couldn&rsquo;t detect your market from your site{detectedCity ? ` (we did find you're in ${detectedCity})` : ""}. Tell us
+            and we&rsquo;ll find your competitors:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+              placeholder="Business type (e.g. hair salon)"
+              aria-label="Business type"
+              className="flex-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-sm outline-none"
+            />
+            <input
+              value={city || detectedCity || ""}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="City (e.g. Santa Monica)"
+              aria-label="City"
+              className="flex-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-sm outline-none"
+            />
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-sm font-medium text-amber-100 hover:bg-amber-400/15 disabled:opacity-50"
+            >
+              Find competitors
+            </button>
+          </div>
+          <div className="mt-2 flex items-center gap-2 text-xs text-white/40">
+            <span>or paste competitor URLs directly (most reliable):</span>
+          </div>
+          <input
+            value={urls}
+            onChange={(e) => setUrls(e.target.value)}
+            placeholder="competitor1.com, competitor2.com"
+            aria-label="Competitor URLs"
+            className="mt-1 w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-sm outline-none"
+          />
+        </form>
       )}
 
       {report && (

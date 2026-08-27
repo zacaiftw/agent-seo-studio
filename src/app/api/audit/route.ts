@@ -3,6 +3,7 @@ import { auditUrl } from "@/lib/audit";
 import { scoreGeo, suggestFixes, projectScore } from "@/lib/score";
 import { generateSchema, generateMeta } from "@/lib/generate";
 import { scanMarket, analyzeGaps } from "@/lib/market";
+import { schemaTypeToKind } from "@/lib/discover";
 import { runJourney, type Goal } from "@/lib/journey";
 import { buildReport } from "@/lib/report";
 import type { MarketEntry } from "@/lib/market";
@@ -55,23 +56,52 @@ export async function POST(req: NextRequest) {
   }
 
   // Report: the owner-facing four-payoff view. Scans (target + competitors),
-  // then reshapes into the four tab payoffs.
+  // then reshapes into the four tab payoffs. Competitors can be supplied, or
+  // auto-discovered from the target site's own location + business type.
   if (action === "report") {
     const target = String(body.target ?? "").trim();
     if (!target) return NextResponse.json({ error: "A `target` site is required." }, { status: 400 });
-    const competitors = Array.isArray(body.competitors) ? body.competitors.map(String) : [];
-    const query = body.query ? String(body.query) : undefined;
+    const suppliedCompetitors = Array.isArray(body.competitors) ? body.competitors.map(String) : [];
+    const suppliedQuery = body.query ? String(body.query) : undefined;
     const goal = (["book", "quote", "buy", "contact"].includes(String(body.goal)) ? body.goal : "book") as Goal;
-    // Always include the target in the scan set.
-    const urls = [target, ...competitors];
-    const scan = await scanMarket({ urls: query ? undefined : urls, query });
-    // If discovered via query, make sure the target is in the set too.
-    if (query) {
-      const targetScan = await scanMarket({ urls: [target] });
-      if (targetScan.ranked[0]) scan.ranked = dedupeByHost([targetScan.ranked[0], ...scan.ranked]);
+
+    // Always audit the target first (we need it for both the report and detection).
+    const targetAudit = await auditUrl(target);
+    const targetEntry = { url: targetAudit.facts.finalUrl || target, audit: targetAudit, score: scoreGeo(targetAudit) };
+
+    let competitorEntries: MarketEntry[] = [];
+    let detected: { city: string | null; kind: string | null } | undefined;
+    let needsMarket = false;
+
+    if (suppliedCompetitors.length > 0) {
+      const scan = await scanMarket({ urls: suppliedCompetitors });
+      competitorEntries = scan.ranked;
+    } else if (suppliedQuery) {
+      // User told us their market via the fallback prompt (e.g. "salon in Austin").
+      const found = await scanMarket({ query: suppliedQuery });
+      competitorEntries = found.ranked.filter((e) => hostKey(e.url) !== hostKey(targetEntry.url));
+      if (competitorEntries.length === 0) needsMarket = true;
+    } else {
+      // Auto-discover: pull city + business kind from the target's schema.
+      const city = targetAudit.facts.detected.city;
+      const kind = schemaTypeToKind(targetAudit.facts.detected.businessType);
+      detected = { city, kind };
+      if (city && kind) {
+        const found = await scanMarket({ query: `${kind} in ${city}` });
+        // Exclude the target itself from its own competitor set.
+        competitorEntries = found.ranked.filter((e) => hostKey(e.url) !== hostKey(targetEntry.url));
+      }
+      // Couldn't figure out the market from the site alone — tell the UI to ask.
+      if (competitorEntries.length === 0) needsMarket = true;
     }
-    const report = buildReport(scan, target, goal);
-    return NextResponse.json({ scan, report });
+
+    const ranked = dedupeByHost([targetEntry, ...competitorEntries]).sort((a, b) => {
+      const ae = a.audit.facts.error ? 1 : 0, be = b.audit.facts.error ? 1 : 0;
+      return ae !== be ? ae - be : b.score.readiness - a.score.readiness;
+    });
+    const scan = { ranked };
+    const report = buildReport(scan, targetEntry.url, goal);
+    return NextResponse.json({ scan, report, detected, needsMarket });
   }
 
   const url = String(body.url ?? "").trim();

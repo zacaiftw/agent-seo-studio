@@ -4,7 +4,17 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { discoverMarket } from "./discover";
+import { discoverMarket, schemaTypeToKind } from "./discover";
+
+test("schema business types map to searchable kinds; generic ones don't", () => {
+  assert.equal(schemaTypeToKind("HairSalon"), "salon");
+  assert.equal(schemaTypeToKind("Dentist"), "dentist");
+  assert.equal(schemaTypeToKind("Restaurant"), "restaurant");
+  // Too generic to search OSM for — must return null so we fall back to asking.
+  assert.equal(schemaTypeToKind("ProfessionalService"), null);
+  assert.equal(schemaTypeToKind("LocalBusiness"), null);
+  assert.equal(schemaTypeToKind(null), null);
+});
 
 test("a query with no location returns guidance, not a network call", async () => {
   const r = await discoverMarket("day spa");
