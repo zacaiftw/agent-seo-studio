@@ -12,6 +12,8 @@
 
 // Multiple public Overpass mirrors — the main instance rate-limits and sometimes
 // returns an HTML load page instead of JSON. We try them in order.
+import { hostKey } from "./url";
+
 const OVERPASS_MIRRORS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
@@ -75,7 +77,13 @@ export async function discoverMarket(query: string, max = 25): Promise<DiscoverR
     .map((t) => `nwr[${t}]["website"](area.a);`)
     .join("");
 
-  const safePlace = place.replace(/"/g, "");
+  // Allowlist the place name to safe characters before it enters the Overpass QL
+  // string. Stripping only quotes leaves backslash/brackets/semicolons that can
+  // corrupt or inject into the query — allowlisting letters, numbers, and a few
+  // separators is the safe form. Overpass is read-only against public OSM data,
+  // but a malformed query is still a defect and this is public.
+  const safePlace = place.replace(/[^\p{L}\p{N} .,'’‑-]/gu, "").trim();
+  if (!safePlace) return { businesses: [], note: "That location name has no usable characters." };
   const ql = `[out:json][timeout:25];area["name"="${safePlace}"]["boundary"="administrative"]->.a;(${selectors});out tags ${max};`;
 
   const data = await queryOverpass(ql);
@@ -94,7 +102,7 @@ export async function discoverMarket(query: string, max = 25): Promise<DiscoverR
       const tags = el.tags ?? {};
       const url: string | undefined = tags.website || tags["contact:website"];
       if (!url) continue;
-      const key = url.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
+      const key = hostKey(url);
       if (seen.has(key)) continue;
       seen.add(key);
       businesses.push({ name: tags.name || key, url });

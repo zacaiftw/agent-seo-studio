@@ -12,6 +12,7 @@
  */
 import type { ModelContext, StudioBridge, WorkspaceEntry } from "./mcp-types";
 import type { Fix } from "./score";
+import { hostKey, prettyHost as host } from "./url";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -360,7 +361,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
 }
 
 async function ensureAudited(bridge: StudioBridge, url: string, businessName?: string): Promise<WorkspaceEntry> {
-  const existing = bridge.getWorkspace().find((e) => normalize(e.url) === normalize(url));
+  const existing = bridge.getWorkspace().find((e) => hostKey(e.url) === hostKey(url));
   if (existing) {
     bridge.focus(existing.id);
     return existing;
@@ -370,7 +371,7 @@ async function ensureAudited(bridge: StudioBridge, url: string, businessName?: s
 
 /** Ensure the site is audited AND has generated fixes attached. */
 async function ensureGenerated(bridge: StudioBridge, url: string): Promise<WorkspaceEntry> {
-  const existing = bridge.getWorkspace().find((e) => normalize(e.url) === normalize(url));
+  const existing = bridge.getWorkspace().find((e) => hostKey(e.url) === hostKey(url));
   if (existing?.generated) {
     bridge.focus(existing.id);
     return existing;
@@ -378,17 +379,6 @@ async function ensureGenerated(bridge: StudioBridge, url: string): Promise<Works
   return bridge.generateFixes(url);
 }
 
-function normalize(u: string): string {
-  return u.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
-}
-
-function host(u: string): string {
-  try {
-    return new URL(u.startsWith("http") ? u : `https://${u}`).host.replace(/^www\./, "");
-  } catch {
-    return u;
-  }
-}
 
 function buildReport(ws: WorkspaceEntry[]): string {
   const lines: string[] = ["# Agent SEO Studio — Audit Report", "", `Generated ${new Date().toISOString()}`, ""];

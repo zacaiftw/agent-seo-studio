@@ -74,6 +74,22 @@ test("gap analysis returns null when the market is too small", () => {
   assert.equal(analyzeGaps(scan, "target.test"), null);
 });
 
+test("gap analysis finds its target even when the site redirected to a path", () => {
+  // Regression: a site whose finalUrl carries a path (redirect to /en) must still
+  // match the bare-domain target the caller passes.
+  const scan: MarketScan = {
+    ranked: [
+      entry("https://leader1.test/"),
+      entry("https://leader2.test/"),
+      entry("https://leader3.test/"),
+      entry("https://www.target.test/en/home", { jsonLdBlocks: 0, jsonLdTypes: [] }),
+    ],
+  };
+  const g = analyzeGaps(scan, "target.test");
+  assert.ok(g, "should find the target despite the path in its finalUrl");
+  assert.ok(g!.targetGaps.includes("schema"));
+});
+
 test("gap analysis returns null when the target isn't in the market", () => {
   const scan: MarketScan = {
     ranked: [entry("https://a.test/"), entry("https://b.test/"), entry("https://c.test/")],

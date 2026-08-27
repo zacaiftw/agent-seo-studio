@@ -13,6 +13,7 @@
  * are emitted as clearly-marked placeholders for the human to fill.
  */
 import type { AuditResult } from "./audit";
+import { prettyHost as host } from "./url";
 
 export interface GeneratedFix {
   kind: "schema" | "meta";
@@ -22,14 +23,6 @@ export interface GeneratedFix {
   content: string;
   /** Optional before/after for meta fixes. */
   before?: string;
-}
-
-function host(url: string): string {
-  try {
-    return new URL(url).host.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
 }
 
 /** A readable business name guess from the domain, e.g. "example-bakery.com" -> "Example Bakery". */

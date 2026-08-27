@@ -7,6 +7,7 @@ import type { GeneratedFix } from "@/lib/generate";
 import type { StudioBridge, WorkspaceEntry, GeneratedKit } from "@/lib/mcp-types";
 import type { MarketScan, GapAnalysis } from "@/lib/market";
 import { registerStudioTools } from "@/lib/register-tools";
+import { sameHost, prettyHost } from "@/lib/url";
 
 type MarketState = (MarketScan & { gaps?: GapAnalysis | null }) | null;
 
@@ -152,7 +153,7 @@ export default function Home() {
       <header className="mb-8">
         <div className="flex items-center gap-3">
           <span className="text-2xl">🔍</span>
-          <h1 className="text-xl font-semibold tracking-tight">Agent SEO Studio</h1>
+          <h1 className="whitespace-nowrap text-xl font-semibold tracking-tight">Agent SEO Studio</h1>
           <span
             className={`ml-auto rounded-full px-3 py-1 text-xs font-medium ${
               mcpReady ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"
@@ -517,17 +518,6 @@ function ScoreDot({ score, error }: { score: number; error: boolean }) {
   return <span className={`text-xs font-semibold tabular-nums ${scoreText(score)}`}>{score}</span>;
 }
 
-function sameHost(a: string, b: string): boolean {
-  const n = (u: string) => u.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
-  return n(a) === n(b);
-}
-function prettyHost(url: string): string {
-  try {
-    return new URL(url.startsWith("http") ? url : `https://${url}`).host.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
-}
 function barColor(s: number) {
   return s >= 85 ? "bg-emerald-400" : s >= 65 ? "bg-lime-400" : s >= 40 ? "bg-amber-400" : "bg-red-400";
 }

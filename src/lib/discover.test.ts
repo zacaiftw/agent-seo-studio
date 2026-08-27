@@ -1,0 +1,21 @@
+/**
+ * Discovery tests. We don't hit Overpass here — we pin the input handling that
+ * matters for safety and correctness: query parsing and place sanitization.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { discoverMarket } from "./discover";
+
+test("a query with no location returns guidance, not a network call", async () => {
+  const r = await discoverMarket("day spa");
+  assert.equal(r.businesses.length, 0);
+  assert.match(r.note ?? "", /location/i);
+});
+
+test("a place made only of QL metacharacters yields no usable name", async () => {
+  // Pure punctuation (no letters/numbers) must strip to empty and be rejected
+  // before any network call — proving metacharacters can't reach the QL.
+  const r = await discoverMarket('spa in ";](){}[<>|\\');
+  assert.equal(r.businesses.length, 0);
+  assert.match(r.note ?? "", /no usable characters/i);
+});

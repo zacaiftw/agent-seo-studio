@@ -56,7 +56,7 @@ document.modelContext.registerTool({
 });
 ```
 
-### The eight tools
+### The eleven tools
 
 | Tool | What the agent can do |
 |---|---|
@@ -65,9 +65,22 @@ document.modelContext.registerTool({
 | `score_geo` | Return the 0–100 GEO-readiness score and tier |
 | `suggest_fixes` | Prioritized fixes **including ready-to-paste JSON-LD** |
 | `compare_sites` | Audit 2+ sites and rank them by readiness (you vs competitors) |
+| `scan_market` | **Audit a whole local market** — auto-discover via a query, or a URL list |
+| `analyze_gaps` | What the market leaders share that a target site lacks |
 | `generate_fixes` | **Create** ready-to-ship JSON-LD + optimized meta from the site's real content |
 | `preview_impact` | Project the score **if the fixes were applied** (e.g. 31 → 83) |
+| `verify_fix` | Re-fetch a site live and **prove** the score actually changed |
 | `export_report` | Emit a shareable Markdown report of the whole workspace |
+
+### The war room — the WebMCP-exclusive move
+
+`scan_market` is the tool a browser agent physically cannot replace. Ask *"scan
+every hair salon in Santa Monica"* and the page's server fetches and audits dozens
+of sites **concurrently** — a browser agent can't, because CORS blocks cross-origin
+fetches and auditing 30 sites by hand is an afternoon. The agent gets back a ranked
+market leaderboard, and `analyze_gaps` tells a target site exactly what the leaders
+do that it doesn't. Discovery uses OpenStreetMap (keyless, no setup); an explicit
+URL list always works as a discovery-free fallback.
 
 **`generate_fixes` is provider-agnostic:** it uses OpenAI (`OPENAI_API_KEY`) or
 Anthropic (`ANTHROPIC_API_KEY`) to tailor copy to the site's real content when a
@@ -83,9 +96,10 @@ No authentication required.
 1. Open `chrome://flags/#enable-webmcp-testing`, set to **Enabled**, relaunch.
 2. Visit the live URL. The badge top-right should read **"WebMCP connected."**
 3. Open your agent / the Model Context inspector and try:
+   - `scan_market` with `urls: ["salonrepublic.com", "sonage.com", "boldenbeauty.com"], target: "boldenbeauty.com"` — the war-room leaderboard + gap analysis
    - `audit_website` with `url: "example.com"`
-   - `compare_sites` with `urls: ["ai-ftw.com", "example.com"]`
-   - `suggest_fixes` with `url: "example.com"` — note the JSON-LD snippet
+   - `generate_fixes` with `url: "example.com"` — ready-to-paste JSON-LD
+   - `preview_impact` with `url: "example.com"` — the 31 → 83 projection
    - `export_report` — get the full Markdown report
 
 **Option B — ChatGPT in-app browser**

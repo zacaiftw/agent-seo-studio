@@ -11,6 +11,7 @@
 import { auditUrl, type AuditResult } from "./audit";
 import { scoreGeo, type GeoScore } from "./score";
 import { discoverMarket } from "./discover";
+import { sameHost, prettyHost } from "./url";
 
 export interface MarketEntry {
   name?: string;
@@ -137,16 +138,4 @@ export function analyzeGaps(scan: MarketScan, targetUrl: string): GapAnalysis | 
     summary.push(`${prettyHost(target.url)} is already on par with the market leaders on the measured signals.`);
 
   return { winningSchemaTypes, targetGaps, summary };
-}
-
-function sameHost(a: string, b: string): boolean {
-  const n = (u: string) => u.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").toLowerCase();
-  return n(a) === n(b);
-}
-function prettyHost(url: string): string {
-  try {
-    return new URL(url.startsWith("http") ? url : `https://${url}`).host.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
 }
