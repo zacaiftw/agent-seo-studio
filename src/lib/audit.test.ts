@@ -30,6 +30,7 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     jsonLdTypes: ["LocalBusiness"],
     ogTags: { title: true, description: true, image: true },
     agentReady: true,
+    affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
     noindex: false,
     likelyClientRendered: false,
     textSample: "We are a local business serving the community.",

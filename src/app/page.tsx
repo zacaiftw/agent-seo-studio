@@ -6,8 +6,19 @@ import type { GeoScore, Fix } from "@/lib/score";
 import type { GeneratedFix } from "@/lib/generate";
 import type { StudioBridge, WorkspaceEntry, GeneratedKit } from "@/lib/mcp-types";
 import type { MarketScan, GapAnalysis } from "@/lib/market";
+import type { JourneyReport, Goal } from "@/lib/journey";
 import { registerStudioTools } from "@/lib/register-tools";
 import { sameHost, prettyHost } from "@/lib/url";
+
+async function callJourney(url: string, goal: Goal) {
+  const res = await fetch("/api/audit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, goal, action: "journey" }),
+  });
+  if (!res.ok) throw new Error(`Journey check failed (${res.status})`);
+  return (await res.json()) as { journey: JourneyReport };
+}
 
 type MarketState = (MarketScan & { gaps?: GapAnalysis | null }) | null;
 
@@ -55,6 +66,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [market, setMarket] = useState<MarketState>(null);
   const [scanning, setScanning] = useState(false);
+  const [journey, setJourney] = useState<JourneyReport | null>(null);
   const wsRef = useRef<WorkspaceEntry[]>([]);
   wsRef.current = workspace;
 
@@ -115,6 +127,12 @@ export default function Home() {
     return { before, after: score.readiness, changed: score.readiness !== before, tier: score.tier };
   }, []);
 
+  const runJourneyCheck = useCallback(async (url: string, goal: string) => {
+    const { journey } = await callJourney(url, goal as Goal);
+    setJourney(journey);
+    return journey;
+  }, []);
+
   // Register WebMCP tools once the API exists in this browser.
   useEffect(() => {
     if (typeof document === "undefined" || !document.modelContext) return;
@@ -123,6 +141,7 @@ export default function Home() {
       generateFixes,
       scanMarket: runScan,
       verifyFix,
+      runJourney: runJourneyCheck,
       getWorkspace: () => wsRef.current,
       clearWorkspace: () => setWorkspace([]),
       focus: (id) => setFocusedId(id),
@@ -130,7 +149,7 @@ export default function Home() {
     const controller = registerStudioTools(document.modelContext, bridge);
     setMcpReady(true);
     return () => controller.abort();
-  }, [runAudit, generateFixes, runScan, verifyFix]);
+  }, [runAudit, generateFixes, runScan, verifyFix, runJourneyCheck]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,6 +227,17 @@ export default function Home() {
 
       {market && <MarketLeaderboard market={market} />}
 
+      <MysteryShopperBar
+        onCheck={async (url, goal) => {
+          try {
+            await runJourneyCheck(url, goal);
+          } catch (err) {
+            alert(err instanceof Error ? err.message : "Journey check failed");
+          }
+        }}
+      />
+      {journey && <JourneyPanel report={journey} />}
+
       <div className="grid gap-6 md:grid-cols-[280px_1fr]">
         <aside>
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-white/40">
@@ -281,6 +311,95 @@ function MarketScanBar({ scanning, onScan }: { scanning: boolean; onScan: (q: st
         {scanning ? "Scanning market…" : "Scan market"}
       </button>
     </form>
+  );
+}
+
+function MysteryShopperBar({ onCheck }: { onCheck: (url: string, goal: Goal) => void }) {
+  const [url, setUrl] = useState("");
+  const [goal, setGoal] = useState<Goal>("book");
+  const [busy, setBusy] = useState(false);
+  const goals: Goal[] = ["book", "quote", "buy", "contact"];
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!url.trim() || busy) return;
+        setBusy(true);
+        try {
+          await onCheck(url.trim(), goal);
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className="mb-6 flex flex-wrap gap-2"
+    >
+      <div className="flex flex-1 items-center gap-2 rounded-lg border border-sky-400/20 bg-sky-400/[0.04] px-4">
+        <span className="text-sm">🕵️</span>
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="Mystery-shop a site — can an agent finish the job?"
+          className="flex-1 bg-transparent py-2.5 text-sm outline-none placeholder:text-sky-200/30"
+          aria-label="Site to mystery-shop"
+        />
+      </div>
+      <select
+        value={goal}
+        onChange={(e) => setGoal(e.target.value as Goal)}
+        aria-label="Goal to test"
+        className="rounded-lg border border-sky-400/20 bg-sky-400/[0.04] px-3 py-2.5 text-sm text-sky-100 outline-none"
+      >
+        {goals.map((g) => (
+          <option key={g} value={g} className="bg-slate-900">
+            {g}
+          </option>
+        ))}
+      </select>
+      <button
+        type="submit"
+        disabled={busy}
+        className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-5 py-2.5 text-sm font-medium text-sky-200 transition hover:bg-sky-400/15 disabled:opacity-50"
+      >
+        {busy ? "Testing…" : "Test journey"}
+      </button>
+    </form>
+  );
+}
+
+function JourneyPanel({ report }: { report: JourneyReport }) {
+  const tone =
+    report.outcome === "agent-ready" || report.outcome === "reachable"
+      ? "emerald"
+      : report.outcome === "friction"
+        ? "amber"
+        : "red";
+  const border = { emerald: "border-emerald-400/25", amber: "border-amber-400/25", red: "border-red-400/25" }[tone];
+  const bg = { emerald: "bg-emerald-400/[0.04]", amber: "bg-amber-400/[0.05]", red: "bg-red-400/[0.05]" }[tone];
+  const badge = { emerald: "bg-emerald-400/15 text-emerald-300", amber: "bg-amber-400/15 text-amber-200", red: "bg-red-400/15 text-red-300" }[tone];
+  const mark = (s: string) => (s === "ok" ? "✓" : s === "friction" ? "~" : "✗");
+  const markColor = (s: string) => (s === "ok" ? "text-emerald-400" : s === "friction" ? "text-amber-400" : "text-red-400");
+  return (
+    <div className={`mb-8 rounded-xl border ${border} ${bg} p-6`}>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <span className="text-sm">🕵️</span>
+        <h3 className="text-sm font-semibold">Agent mystery shopper</h3>
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${badge}`}>{report.outcome}</span>
+        <span className="text-xs text-white/40">goal: {report.goal}</span>
+      </div>
+      <p className="mb-4 text-sm text-white/85">{report.headline}</p>
+      <ul className="mb-4 space-y-1.5">
+        {report.steps.map((s, i) => (
+          <li key={i} className="flex gap-2 text-sm">
+            <span className={`font-semibold ${markColor(s.status)}`}>{mark(s.status)}</span>
+            <span className="text-white/70">{s.detail}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="rounded-lg border border-white/10 bg-black/20 p-3 text-sm">
+        <span className="font-medium text-white/80">Fix: </span>
+        <span className="text-white/70">{report.recommendation}</span>
+      </div>
+    </div>
   );
 }
 

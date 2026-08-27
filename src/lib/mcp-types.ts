@@ -30,6 +30,7 @@ export interface StudioBridge {
   generateFixes: (url: string) => Promise<WorkspaceEntry>;
   scanMarket: (input: { query?: string; urls?: string[]; target?: string }) => Promise<import("./market").MarketScan & { gaps?: import("./market").GapAnalysis | null }>;
   verifyFix: (url: string) => Promise<{ before: number; after: number; changed: boolean; tier: string }>;
+  runJourney: (url: string, goal: string) => Promise<import("./journey").JourneyReport>;
   getWorkspace: () => WorkspaceEntry[];
   clearWorkspace: () => void;
   focus: (id: string) => void;

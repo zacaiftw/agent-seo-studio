@@ -280,6 +280,29 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
     { signal }
   );
 
+  // 12. Mystery shopper — can an agent actually finish the job on this site?
+  mc.registerTool(
+    {
+      name: "verify_journey",
+      description:
+        "Act as an 'agent mystery shopper': check whether a visitor's AI agent could actually complete a key task on a site — book, quote, buy, or contact — and report exactly where it would get stuck. Reports the best path an agent could take (a WebMCP tool, a form, a booking widget, a contact link) or says plainly that the agent is blocked. A static reachability check of the page's HTML, not a live click-through.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "The site to test." },
+          goal: { type: "string", enum: ["book", "quote", "buy", "contact"], description: "The task to attempt, e.g. 'book' an appointment or 'buy' a product." },
+        },
+        required: ["url", "goal"],
+      },
+      execute: async ({ url, goal }) => {
+        const r = await bridge.runJourney(String(url), String(goal));
+        const stepLines = r.steps.map((s) => `${s.status === "ok" ? "✓" : s.status === "friction" ? "~" : "✗"} ${s.detail}`).join("\n");
+        return text(`${r.headline}\n\nWhat an agent hits:\n${stepLines}\n\nFix: ${r.recommendation}`);
+      },
+    },
+    { signal }
+  );
+
   // 7. Generate — the creation beat. Produce ready-to-ship JSON-LD + meta.
   mc.registerTool(
     {

@@ -38,6 +38,17 @@ export interface AuditFacts {
    * detected across the HTML and its linked scripts. Best-effort: tools register at runtime, so this is
    * a signal a raw fetch can see, not a guarantee. The "can the agent finish the job?" dimension. */
   agentReady: boolean;
+  /** Raw affordance signals for the mystery-shopper journey check. What an agent
+   * could grab hold of to complete a task: forms, contact links, and known
+   * booking/commerce platform fingerprints. Populated from the initial HTML. */
+  affordances: {
+    forms: number;
+    emailInputs: number;
+    hasMailto: boolean;
+    hasTel: boolean;
+    /** Lowercased signals found: e.g. "calendly", "book", "add to cart", "checkout". */
+    signals: string[];
+  };
   /** True when the page asks crawlers not to index it (robots meta or X-Robots-Tag). A hard block on being found at all. */
   noindex: boolean;
   /** True when the raw HTML is near-empty but ships a big JS bundle — a client-rendered SPA. We flag rather than falsely report "no content". */
@@ -111,6 +122,25 @@ function collectTypes(node: unknown, out: Set<string>): void {
       if (v && typeof v === "object") collectTypes(v, out);
     }
   }
+}
+
+/** Known task-completion signals in the HTML — what an agent could act on. */
+const AFFORDANCE_SIGNALS = [
+  "calendly", "acuity", "squarespace-scheduling", "booksy", "opentable", "resy", "vagaro", "mindbody",
+  "book now", "book online", "book appointment", "schedule", "reserve", "reservation", "request a quote",
+  "get a quote", "free quote", "add to cart", "add-to-cart", "checkout", "buy now", "shop now", "contact us",
+];
+
+function extractAffordances(html: string): AuditFacts["affordances"] {
+  const lower = html.toLowerCase();
+  const signals = AFFORDANCE_SIGNALS.filter((s) => lower.includes(s));
+  return {
+    forms: (html.match(/<form\b/gi) ?? []).length,
+    emailInputs: (html.match(/<input[^>]*type=["']email["']/gi) ?? []).length,
+    hasMailto: /href=["']mailto:/i.test(html),
+    hasTel: /href=["']tel:/i.test(html),
+    signals,
+  };
 }
 
 function attr(html: string, tag: string, name: string, value: string): string | null {
@@ -208,6 +238,7 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     jsonLdTypes: [],
     ogTags: { title: false, description: false, image: false },
     agentReady: false,
+    affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
     noindex: false,
     likelyClientRendered: false,
     textSample: "",
@@ -250,6 +281,8 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     let agentReady = WEBMCP_RE.test(html);
     if (!agentReady) agentReady = await scriptsReferenceWebMCP(html, res.url || url, controller.signal);
 
+    const affordances = extractAffordances(html);
+
     facts = {
       ...facts,
       finalUrl: res.url || url,
@@ -274,6 +307,7 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
         image: /<meta[^>]*property=["']og:image["']/i.test(html),
       },
       agentReady,
+      affordances,
       noindex,
     };
   } catch (e) {

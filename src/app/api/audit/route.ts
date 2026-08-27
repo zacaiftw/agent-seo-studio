@@ -3,6 +3,7 @@ import { auditUrl } from "@/lib/audit";
 import { scoreGeo, suggestFixes, projectScore } from "@/lib/score";
 import { generateSchema, generateMeta } from "@/lib/generate";
 import { scanMarket, analyzeGaps } from "@/lib/market";
+import { runJourney, type Goal } from "@/lib/journey";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +46,11 @@ export async function POST(req: NextRequest) {
   if (!url) return NextResponse.json({ error: "A `url` is required." }, { status: 400 });
 
   const audit = await auditUrl(url);
+
+  if (action === "journey") {
+    const goal = (["book", "quote", "buy", "contact"].includes(String(body.goal)) ? body.goal : "contact") as Goal;
+    return NextResponse.json({ audit, journey: runJourney(audit, goal) });
+  }
 
   if (action === "generate") {
     if (audit.facts.error) {
