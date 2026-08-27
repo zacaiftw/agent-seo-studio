@@ -7,8 +7,19 @@ import type { GeneratedFix } from "@/lib/generate";
 import type { StudioBridge, WorkspaceEntry, GeneratedKit } from "@/lib/mcp-types";
 import type { MarketScan, GapAnalysis } from "@/lib/market";
 import type { JourneyReport, Goal } from "@/lib/journey";
+import type { MarketReport, Payoff } from "@/lib/report";
 import { registerStudioTools } from "@/lib/register-tools";
 import { sameHost, prettyHost } from "@/lib/url";
+
+async function callReport(target: string, competitors: string[], goal: Goal) {
+  const res = await fetch("/api/audit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "report", target, competitors, goal }),
+  });
+  if (!res.ok) throw new Error(`Report failed (${res.status})`);
+  return (await res.json()) as { report: MarketReport; scan: MarketScan };
+}
 
 async function callJourney(url: string, goal: Goal) {
   const res = await fetch("/api/audit", {
@@ -67,6 +78,9 @@ export default function Home() {
   const [market, setMarket] = useState<MarketState>(null);
   const [scanning, setScanning] = useState(false);
   const [journey, setJourney] = useState<JourneyReport | null>(null);
+  const [report, setReport] = useState<MarketReport | null>(null);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const wsRef = useRef<WorkspaceEntry[]>([]);
   wsRef.current = workspace;
 
@@ -167,9 +181,21 @@ export default function Home() {
 
   const focused = workspace.find((e) => e.id === focusedId) ?? workspace[0] ?? null;
 
+  const runReport = async (target: string, competitors: string[], goal: Goal) => {
+    setReportBusy(true);
+    try {
+      const { report } = await callReport(target, competitors, goal);
+      setReport(report);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Report failed");
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
   return (
-    <main className="mx-auto max-w-6xl px-5 py-8">
-      <header className="mb-8">
+    <main className="mx-auto max-w-5xl px-5 py-8">
+      <header className="mb-6">
         <div className="flex items-center gap-3">
           <span className="text-2xl">🔍</span>
           <h1 className="whitespace-nowrap text-xl font-semibold tracking-tight">Agent SEO Studio</h1>
@@ -179,18 +205,28 @@ export default function Home() {
             }`}
             title="WebMCP availability in this browser"
           >
-            {mcpReady ? "● WebMCP connected — your agent can drive this page" : "○ WebMCP not detected — enable it or use manual mode"}
+            {mcpReady ? "● WebMCP connected" : "○ WebMCP off"}
           </span>
         </div>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/60">
-          SEO asks <em>can Google read the page</em>. GEO asks <em>can an AI cite it</em>. The next question is{" "}
-          <strong className="text-white/80">can the agent finish the job</strong> — audit a site&rsquo;s AI-search
-          readiness <em>and</em> whether it exposes WebMCP tools an agent can act on. Ask your AI to{" "}
-          <em>&ldquo;scan my market, compare me to competitors, and give me the fixes&rdquo;</em> and watch the results land
-          here. You can also drive it by hand below.
+          AI agents are becoming the customers. See whether an agent shopping your market can{" "}
+          <strong className="text-white/80">actually book, buy from, and find you</strong> — or your competitors instead.
         </p>
       </header>
 
+      <OwnerReport report={report} busy={reportBusy} onRun={runReport} />
+
+      <div className="mt-10 border-t border-white/10 pt-6">
+        <button
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="mb-4 text-xs font-medium uppercase tracking-wider text-white/40 hover:text-white/60"
+        >
+          {showAdvanced ? "▾ Advanced tools" : "▸ Advanced tools (audit, market scan, mystery shopper, generate)"}
+        </button>
+      </div>
+
+      {showAdvanced && (
+      <>
       <form onSubmit={onSubmit} className="mb-8 flex gap-2">
         <input
           value={urlInput}
@@ -271,6 +307,8 @@ export default function Home() {
 
         <section>{focused ? <Detail entry={focused} onGenerate={generateFixes} /> : <Empty />}</section>
       </div>
+      </>
+      )}
 
       <footer className="mt-16 border-t border-white/10 pt-6 text-xs text-white/40">
         Built for the WebMCP Challenge · every action on this page is a{" "}
@@ -311,6 +349,147 @@ function MarketScanBar({ scanning, onScan }: { scanning: boolean; onScan: (q: st
         {scanning ? "Scanning market…" : "Scan market"}
       </button>
     </form>
+  );
+}
+
+type TabKey = "bookable" | "visible" | "rank" | "fix";
+const TABS: { key: TabKey; icon: string; label: string }[] = [
+  { key: "bookable", icon: "🕵️", label: "Can an agent book you?" },
+  { key: "visible", icon: "🔍", label: "Visible to AI search?" },
+  { key: "rank", icon: "🏆", label: "Your rank" },
+  { key: "fix", icon: "⚡", label: "Fix it" },
+];
+
+function toneClasses(tone: Payoff["tone"]) {
+  switch (tone) {
+    case "bad":
+      return { text: "text-red-300", ring: "border-red-400/30", glow: "bg-red-500/[0.07]" };
+    case "good":
+      return { text: "text-emerald-300", ring: "border-emerald-400/30", glow: "bg-emerald-500/[0.07]" };
+    case "mixed":
+      return { text: "text-amber-200", ring: "border-amber-400/30", glow: "bg-amber-500/[0.06]" };
+    default:
+      return { text: "text-white/70", ring: "border-white/15", glow: "bg-white/[0.03]" };
+  }
+}
+
+function OwnerReport({
+  report,
+  busy,
+  onRun,
+}: {
+  report: MarketReport | null;
+  busy: boolean;
+  onRun: (target: string, competitors: string[], goal: Goal) => void;
+}) {
+  const [site, setSite] = useState("");
+  const [comps, setComps] = useState("");
+  const [goal, setGoal] = useState<Goal>("book");
+  const [tab, setTab] = useState<TabKey>("bookable");
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!site.trim() || busy) return;
+    const competitors = comps.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
+    onRun(site.trim(), competitors, goal);
+  };
+
+  const payoff = report ? report[tab] : null;
+  const tc = payoff ? toneClasses(payoff.tone) : toneClasses("unknown");
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent p-6 sm:p-8">
+      <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+        <input
+          value={site}
+          onChange={(e) => setSite(e.target.value)}
+          placeholder="Your website (e.g. yoursalon.com)"
+          aria-label="Your website"
+          className="rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm outline-none focus:border-white/30"
+        />
+        <input
+          value={comps}
+          onChange={(e) => setComps(e.target.value)}
+          placeholder="Competitor sites (comma-separated)"
+          aria-label="Competitor sites"
+          className="rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm outline-none focus:border-white/30"
+        />
+        <div className="flex gap-2">
+          <select
+            value={goal}
+            onChange={(e) => setGoal(e.target.value as Goal)}
+            aria-label="Goal"
+            className="rounded-lg border border-white/15 bg-white/5 px-3 py-3 text-sm outline-none"
+          >
+            {(["book", "quote", "buy", "contact"] as Goal[]).map((g) => (
+              <option key={g} value={g} className="bg-slate-900">
+                {g}
+              </option>
+            ))}
+          </select>
+          <button
+            type="submit"
+            disabled={busy}
+            className="whitespace-nowrap rounded-lg bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:opacity-50"
+          >
+            {busy ? "Checking…" : "Check my site"}
+          </button>
+        </div>
+      </form>
+
+      {!report && !busy && (
+        <p className="mt-5 text-center text-sm text-white/40">
+          Enter your site and a competitor or two. We&rsquo;ll show you what an AI agent sees when it shops your market.
+        </p>
+      )}
+
+      {report && (
+        <div className="mt-6">
+          {/* Tabs */}
+          <div className="mb-5 flex flex-wrap gap-2">
+            {TABS.map((t) => {
+              const p = report[t.key];
+              const active = t.key === tab;
+              const dot = p.tone === "bad" ? "bg-red-400" : p.tone === "good" ? "bg-emerald-400" : p.tone === "mixed" ? "bg-amber-400" : "bg-white/30";
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs font-medium transition ${
+                    active ? "border-white/40 bg-white/10 text-white" : "border-white/10 bg-white/[0.03] text-white/60 hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <span>{t.icon}</span>
+                  <span>{t.label}</span>
+                  <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Hero payoff */}
+          {payoff && (
+            <div className={`rounded-xl border ${tc.ring} ${tc.glow} p-6 sm:p-8`}>
+              <h2 className={`text-2xl font-semibold leading-tight sm:text-3xl ${tc.text}`}>{payoff.headline}</h2>
+              {payoff.detail.length > 0 && (
+                <ul className="mt-4 space-y-1.5">
+                  {payoff.detail.map((d, i) => (
+                    <li key={i} className="text-sm leading-relaxed text-white/70">
+                      {d}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!report.comparable && (
+                <p className="mt-4 text-xs text-white/40">
+                  Add your own site plus at least one competitor for a full head-to-head.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

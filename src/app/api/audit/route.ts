@@ -4,6 +4,19 @@ import { scoreGeo, suggestFixes, projectScore } from "@/lib/score";
 import { generateSchema, generateMeta } from "@/lib/generate";
 import { scanMarket, analyzeGaps } from "@/lib/market";
 import { runJourney, type Goal } from "@/lib/journey";
+import { buildReport } from "@/lib/report";
+import type { MarketEntry } from "@/lib/market";
+import { hostKey } from "@/lib/url";
+
+function dedupeByHost(entries: MarketEntry[]): MarketEntry[] {
+  const seen = new Set<string>();
+  return entries.filter((e) => {
+    const k = hostKey(e.url);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +52,26 @@ export async function POST(req: NextRequest) {
     const target = body.target ? String(body.target) : undefined;
     const gaps = target ? analyzeGaps(scan, target) : null;
     return NextResponse.json({ scan, gaps });
+  }
+
+  // Report: the owner-facing four-payoff view. Scans (target + competitors),
+  // then reshapes into the four tab payoffs.
+  if (action === "report") {
+    const target = String(body.target ?? "").trim();
+    if (!target) return NextResponse.json({ error: "A `target` site is required." }, { status: 400 });
+    const competitors = Array.isArray(body.competitors) ? body.competitors.map(String) : [];
+    const query = body.query ? String(body.query) : undefined;
+    const goal = (["book", "quote", "buy", "contact"].includes(String(body.goal)) ? body.goal : "book") as Goal;
+    // Always include the target in the scan set.
+    const urls = [target, ...competitors];
+    const scan = await scanMarket({ urls: query ? undefined : urls, query });
+    // If discovered via query, make sure the target is in the set too.
+    if (query) {
+      const targetScan = await scanMarket({ urls: [target] });
+      if (targetScan.ranked[0]) scan.ranked = dedupeByHost([targetScan.ranked[0], ...scan.ranked]);
+    }
+    const report = buildReport(scan, target, goal);
+    return NextResponse.json({ scan, report });
   }
 
   const url = String(body.url ?? "").trim();
