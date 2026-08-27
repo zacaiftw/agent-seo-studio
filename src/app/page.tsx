@@ -164,10 +164,11 @@ export default function Home() {
           </span>
         </div>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/60">
-          Audit any website for SEO and <strong className="text-white/80">GEO</strong> — how ready it is to be read and cited
-          by AI search engines (ChatGPT, Perplexity, Gemini). Built for agents: ask your AI to{" "}
-          <em>&ldquo;audit my site, compare it to my top competitors, and give me the fixes&rdquo;</em> and watch the results
-          land here. You can also drive it by hand below.
+          SEO asks <em>can Google read the page</em>. GEO asks <em>can an AI cite it</em>. The next question is{" "}
+          <strong className="text-white/80">can the agent finish the job</strong> — audit a site&rsquo;s AI-search
+          readiness <em>and</em> whether it exposes WebMCP tools an agent can act on. Ask your AI to{" "}
+          <em>&ldquo;scan my market, compare me to competitors, and give me the fixes&rdquo;</em> and watch the results land
+          here. You can also drive it by hand below.
         </p>
       </header>
 

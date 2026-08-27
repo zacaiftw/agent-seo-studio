@@ -34,6 +34,10 @@ export interface AuditFacts {
   jsonLdTypes: string[];
   /** Open Graph tags present (og:title, og:description, og:image) — controls how the page looks when shared and cited. */
   ogTags: { title: boolean; description: boolean; image: boolean };
+  /** Whether the page appears to expose WebMCP tools for agents (document.modelContext / registerTool),
+   * detected across the HTML and its linked scripts. Best-effort: tools register at runtime, so this is
+   * a signal a raw fetch can see, not a guarantee. The "can the agent finish the job?" dimension. */
+  agentReady: boolean;
   /** True when the page asks crawlers not to index it (robots meta or X-Robots-Tag). A hard block on being found at all. */
   noindex: boolean;
   /** True when the raw HTML is near-empty but ships a big JS bundle — a client-rendered SPA. We flag rather than falsely report "no content". */
@@ -145,6 +149,43 @@ async function safeFetch(url: string, signal: AbortSignal, hop = 0): Promise<Res
   return res;
 }
 
+/**
+ * Best-effort check for whether a site's own scripts reference the WebMCP API.
+ * Fetches up to 3 same-origin scripts (through the same SSRF guard as the page)
+ * and greps for the modelContext/registerTool signature. Bounded so a heavy site
+ * can't turn one audit into dozens of fetches.
+ */
+async function scriptsReferenceWebMCP(html: string, pageUrl: string, signal: AbortSignal): Promise<boolean> {
+  const WEBMCP_RE = /modelContext|registerTool|useWebMCPTool/i;
+  let base: URL;
+  try {
+    base = new URL(pageUrl);
+  } catch {
+    return false;
+  }
+  const srcs = [...html.matchAll(/<script[^>]*\bsrc=["']([^"']+)["']/gi)].map((m) => m[1]);
+  const sameOrigin: string[] = [];
+  for (const s of srcs) {
+    try {
+      const u = new URL(s, base);
+      if (u.host === base.host && /\.js(\?|$)/i.test(u.pathname)) sameOrigin.push(u.toString());
+    } catch {
+      // ignore malformed src
+    }
+    if (sameOrigin.length >= 3) break;
+  }
+  for (const js of sameOrigin) {
+    try {
+      const res = await safeFetch(js, signal);
+      const text = await res.text();
+      if (WEBMCP_RE.test(text)) return true;
+    } catch {
+      // a script we couldn't fetch tells us nothing — keep going
+    }
+  }
+  return false;
+}
+
 export async function auditUrl(raw: string): Promise<AuditResult> {
   const url = normalizeUrl(raw);
   const started = Date.now();
@@ -166,6 +207,7 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     jsonLdBlocks: 0,
     jsonLdTypes: [],
     ogTags: { title: false, description: false, image: false },
+    agentReady: false,
     noindex: false,
     likelyClientRendered: false,
     textSample: "",
@@ -200,6 +242,14 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     const xRobots = res.headers.get("x-robots-tag") ?? "";
     const noindex = /noindex/i.test(robotsMeta) || /noindex/i.test(xRobots);
 
+    // Agent-readiness: does this site expose WebMCP tools? The signature is
+    // document.modelContext / registerTool. Tools register at runtime, so we
+    // detect the reference in the HTML and (if not found there) in the site's
+    // own script bundles — a best-effort signal a server fetch can see.
+    const WEBMCP_RE = /modelContext|registerTool|useWebMCPTool|navigator\.modelContext/i;
+    let agentReady = WEBMCP_RE.test(html);
+    if (!agentReady) agentReady = await scriptsReferenceWebMCP(html, res.url || url, controller.signal);
+
     facts = {
       ...facts,
       finalUrl: res.url || url,
@@ -223,6 +273,7 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
         description: /<meta[^>]*property=["']og:description["']/i.test(html),
         image: /<meta[^>]*property=["']og:image["']/i.test(html),
       },
+      agentReady,
       noindex,
     };
   } catch (e) {
@@ -279,6 +330,12 @@ export function deriveFindings(f: AuditFacts): Finding[] {
     ].filter(Boolean).join(", ");
     out.push({ tag: "og", severity: "low", line: `Missing Open Graph tags (${missing}) — links to this page show a bare, unappealing preview when shared or cited.` });
   }
+  // Agent-readiness — the "can the agent finish the job?" dimension. Almost no
+  // site exposes WebMCP tools yet, so its absence is an opportunity we surface,
+  // not a defect we punish. Low severity, and only when nothing more urgent
+  // blocks the site from being found at all.
+  if (!f.agentReady && !f.noindex)
+    out.push({ tag: "agent", severity: "low", line: "No agent tools detected — an AI agent visiting this site can read it but can't act on it (search, book, buy). Sites that expose WebMCP tools let a visitor's agent finish the job." });
   if (f.likelyClientRendered)
     out.push({ tag: "spa", severity: "medium", line: "Page renders its content with JavaScript — search crawlers and AI engines that don't run JS see a near-empty page. Measured on the initial HTML only." });
   else if (f.wordCount < 120)

@@ -29,6 +29,7 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     jsonLdBlocks: 1,
     jsonLdTypes: ["LocalBusiness"],
     ogTags: { title: true, description: true, image: true },
+    agentReady: true,
     noindex: false,
     likelyClientRendered: false,
     textSample: "We are a local business serving the community.",
@@ -96,6 +97,20 @@ test("missing Open Graph tags are flagged, present ones are not", () => {
   assert.ok(missing.findings.some((f) => f.tag === "og"));
   const present = wrap(facts({ ogTags: { title: true, description: true, image: true } }));
   assert.ok(!present.findings.some((f) => f.tag === "og"));
+});
+
+test("agent-readiness: a site with no WebMCP tools gets a low-severity opportunity finding + starter snippet", () => {
+  const r = wrap(facts({ agentReady: false }));
+  const agent = r.findings.find((f) => f.tag === "agent");
+  assert.ok(agent, "expected an agent-readiness finding");
+  assert.equal(agent!.severity, "low", "absence is an opportunity, not a defect");
+  const fix = suggestFixes(r).find((f) => f.tag === "agent");
+  assert.ok(fix?.snippet?.includes("registerTool"), "agent fix must emit a starter WebMCP tool");
+});
+
+test("agent-readiness: a site that already exposes tools gets no agent finding", () => {
+  const r = wrap(facts({ agentReady: true }));
+  assert.ok(!r.findings.some((f) => f.tag === "agent"));
 });
 
 test("readiness is clamped to 0–100 even when many defects stack", () => {

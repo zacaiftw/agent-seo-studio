@@ -28,6 +28,7 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     jsonLdBlocks: 0,
     jsonLdTypes: [],
     ogTags: { title: true, description: true, image: true },
+    agentReady: true,
     noindex: false,
     likelyClientRendered: false,
     textSample: "Example Bakery bakes fresh sourdough and pastries in downtown daily.",

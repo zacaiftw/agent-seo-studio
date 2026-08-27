@@ -10,12 +10,19 @@
 
 ### Why this use case is a strong fit for WebMCP
 
+SEO asked *can Google read the page?* GEO asks *can an AI cite the answer?* WebMCP
+opens the next question — **can the agent finish the job?** — and Agent SEO Studio
+is built around it. It even audits whether a site is *itself* WebMCP-ready (does it
+expose `document.modelContext` tools an agent can act on?), making it a WebMCP tool
+that measures WebMCP readiness.
+
 An AI agent asked *"is my website ready for AI search?"* today can only guess from
 its training data. It **can't** fetch the site cross-origin from the browser (CORS
 blocks it), reliably parse its structured data, or hand the person a report they
 keep. Agent SEO Studio exposes exactly those missing capabilities as WebMCP tools:
 a real server-side fetch, a deterministic measured audit, a GEO-readiness score,
-and ready-to-paste JSON-LD fixes.
+ready-to-paste JSON-LD fixes, and a whole-market scan a browser agent physically
+can't run.
 
 WebMCP fits because the work is genuinely collaborative and stateful. The tools
 mutate a **shared visual workspace** the human watches — every audit the agent

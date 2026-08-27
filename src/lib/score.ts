@@ -26,6 +26,7 @@ const WEIGHTS: Record<string, number> = {
   thin: 12,
   h1: 8,
   og: 6,
+  agent: 6,
   canonical: 5,
   alt: 4,
 };
@@ -98,7 +99,7 @@ export interface Fix {
   snippet?: string;
 }
 
-const ORDER = ["noindex", "schema", "speed", "mobile", "https", "meta", "spa", "thin", "h1", "og", "canonical", "alt"];
+const ORDER = ["noindex", "schema", "speed", "mobile", "https", "meta", "spa", "thin", "h1", "og", "agent", "canonical", "alt"];
 
 export function suggestFixes(audit: AuditResult, businessName = "Your Business"): Fix[] {
   const byTag = new Map<string, Finding>();
@@ -120,6 +121,11 @@ function advice(tag: string, name: string, audit: AuditResult): { fix: string; s
       return { fix: 'Remove the `noindex` directive — delete `<meta name="robots" content="noindex">` (or the `X-Robots-Tag: noindex` header). The page is currently invisible to every search and AI engine.' };
     case "og":
       return { fix: 'Add Open Graph tags so shared links show a rich preview: `<meta property="og:title">`, `og:description`, and `og:image` in the <head>.' };
+    case "agent":
+      return {
+        fix: "Expose your core actions as WebMCP tools so a visitor's AI agent can act on your site, not just read it. Start with your most important action (search, book, quote). Paste this into a client-side script and adapt the execute function:",
+        snippet: starterWebMcpTool(name),
+      };
     case "schema":
       return {
         fix: "Add JSON-LD structured data so AI engines can read your services, hours, and location. Paste this into the <head>, then fill in the real values:",
@@ -146,6 +152,27 @@ function advice(tag: string, name: string, audit: AuditResult): { fix: string; s
     default:
       return { fix: "Review this finding against current SEO best practices." };
   }
+}
+
+/** A ready-to-adapt WebMCP tool registration — the starter that makes a site
+ * agent-actionable. Uses the canonical document.modelContext.registerTool shape. */
+function starterWebMcpTool(name: string): string {
+  return `document.modelContext.registerTool({
+  name: "search_products",
+  description: "Search ${name}'s catalog and show matching results on the page.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "What the visitor is looking for." }
+    },
+    required: ["query"]
+  },
+  execute: async ({ query }) => {
+    const results = await runSearch(query);   // reuse your existing search
+    renderResults(results);                   // update the page the human sees
+    return \`Found \${results.length} matches for "\${query}".\`;
+  }
+});`;
 }
 
 function localBusinessJsonLd(name: string, url: string): string {

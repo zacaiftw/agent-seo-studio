@@ -10,6 +10,12 @@ Built for the **WebMCP Challenge**. Every meaningful action on the page is a reg
 
 ## Why this is a strong fit for WebMCP
 
+**SEO** asked *can Google read the page?* **AEO/GEO** asks *can an AI cite the
+answer?* WebMCP opens the next question: **can the agent finish the job?** Agent
+SEO Studio audits all three — and it's the rare tool that also checks whether a
+site is *itself* WebMCP-ready (does it expose `document.modelContext` tools an
+agent can act on?). It's a WebMCP tool that measures WebMCP readiness.
+
 An agent asked "is my website good for AI search?" today has to guess from memory. It **can't** reliably fetch a site cross-origin from the browser (CORS blocks it), parse its structured data, or hand the human a report they keep. Agent SEO Studio exposes exactly those capabilities as tools:
 
 - The page runs a **real server-side fetch + a deterministic, measured audit** the agent can trust and chain.

@@ -27,6 +27,7 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     jsonLdBlocks: 1,
     jsonLdTypes: ["LocalBusiness"],
     ogTags: { title: true, description: true, image: true },
+    agentReady: true,
     noindex: false,
     likelyClientRendered: false,
     textSample: "sample",
