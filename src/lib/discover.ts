@@ -59,10 +59,12 @@ function parseQuery(query: string): { kind: string; place: string } {
   return { kind: query.trim(), place: "" };
 }
 
-function tagsFor(kind: string): string[] {
-  for (const c of CATEGORY_TAGS) if (c.match.test(kind)) return c.tags;
-  // Fallback: match the raw word against name (loose), plus generic shop.
-  return ['"shop"'];
+function tagsFor(kind: string): { tags: string[]; matched: boolean } {
+  for (const c of CATEGORY_TAGS) if (c.match.test(kind)) return { tags: c.tags, matched: true };
+  // No known category. OSM maps physical storefronts, not digital-service
+  // businesses (agencies, SaaS, consultants), so we flag this rather than run a
+  // near-empty generic query and blame "busy".
+  return { tags: ['"shop"'], matched: false };
 }
 
 /** Discover local businesses with websites for a query. Returns [] rather than throwing. */
@@ -72,7 +74,14 @@ export async function discoverMarket(query: string, max = 25): Promise<DiscoverR
     return { businesses: [], note: 'Include a location, e.g. "day spa in Santa Monica".' };
   }
 
-  const tagFilters = tagsFor(kind);
+  const { tags: tagFilters, matched } = tagsFor(kind);
+  if (!matched) {
+    return {
+      businesses: [],
+      place,
+      note: `"${kind}" isn't a mappable local category — OpenStreetMap covers physical storefronts (spas, salons, dentists, restaurants, gyms, trades), not service businesses like agencies or SaaS. Paste the competitor URLs directly to scan this market.`,
+    };
+  }
   const selectors = tagFilters
     .map((t) => `nwr[${t}]["website"](area.a);`)
     .join("");
