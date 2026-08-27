@@ -196,7 +196,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
     {
       name: "scan_market",
       description:
-        "Audit an entire local market at once and rank every business by GEO-readiness. Pass a plain-language query like 'day spa in Santa Monica' to auto-discover the businesses (via OpenStreetMap), or pass an explicit list of competitor URLs. This does what a browser can't — fetch and measure dozens of sites server-side in one call. Optionally pass a target site to get a gap analysis vs. the market leaders.",
+        "Audit an entire local market at once and rank every business by GEO-readiness. Best when YOU (the agent) supply the competitor URLs you already know — you know a business's real competitors better than any directory does; just pass them in `urls`. As a fallback for physical businesses, a plain-language query like 'day spa in Santa Monica' auto-discovers them via OpenStreetMap. This does what a browser can't — fetch and measure dozens of sites server-side in one call. Optionally pass a target site to get a gap analysis vs. the market leaders.",
       inputSchema: {
         type: "object",
         properties: {

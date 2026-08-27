@@ -99,9 +99,10 @@ export async function discoverMarket(query: string, max = 25): Promise<DiscoverR
       note: `"${kind}" isn't a mappable local category — OpenStreetMap covers physical storefronts (spas, salons, dentists, restaurants, gyms, trades), not service businesses like agencies or SaaS. Paste the competitor URLs directly to scan this market.`,
     };
   }
-  const selectors = tagFilters
-    .map((t) => `nwr[${t}]["website"](area.a);`)
-    .join("");
+  // Don't require ["website"] in the query — OSM's website coverage is sparse, and
+  // requiring it drops most matches. We fetch more and post-filter to those that
+  // actually have a URL, which yields more auditable competitors than the strict form.
+  const selectors = tagFilters.map((t) => `nwr[${t}](area.a);`).join("");
 
   // Allowlist the place name to safe characters before it enters the Overpass QL
   // string. Stripping only quotes leaves backslash/brackets/semicolons that can
@@ -110,7 +111,11 @@ export async function discoverMarket(query: string, max = 25): Promise<DiscoverR
   // but a malformed query is still a defect and this is public.
   const safePlace = place.replace(/[^\p{L}\p{N} .,'’‑-]/gu, "").trim();
   if (!safePlace) return { businesses: [], note: "That location name has no usable characters." };
-  const ql = `[out:json][timeout:25];area["name"="${safePlace}"]["boundary"="administrative"]->.a;(${selectors});out tags ${max};`;
+  // Match any OSM area with this name (not only ["boundary"="administrative"]) —
+  // many cities' areas aren't admin-tagged, and the strict form returns 0. Ask for
+  // more than we need since we'll drop the ones without a website. `nw` (not nwr)
+  // keeps the result set lighter.
+  const ql = `[out:json][timeout:25];area["name"="${safePlace}"]->.a;(${selectors});out tags ${max * 4};`;
 
   const data = await queryOverpass(ql);
   if (!data) {

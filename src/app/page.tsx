@@ -405,7 +405,9 @@ function OwnerReport({
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!site.trim() || busy) return;
-    onRun(site.trim(), [], goal); // no competitors -> server auto-detects
+    // If the owner pasted competitors, use them (reliable). Otherwise auto-detect.
+    const pasted = urls.split(/[,\s]+/).map((s) => s.trim()).filter((s) => /\.[a-z]{2,}/i.test(s));
+    onRun(site.trim(), pasted, goal);
   };
 
   const submitMarket = (e: React.FormEvent) => {
@@ -427,40 +429,50 @@ function OwnerReport({
 
   return (
     <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent p-6 sm:p-8">
-      <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[1fr_auto]">
-        <input
-          value={site}
-          onChange={(e) => setSite(e.target.value)}
-          placeholder="Your website (e.g. yoursalon.com)"
-          aria-label="Your website"
-          className="rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm outline-none focus:border-white/30"
-        />
-        <div className="flex gap-2">
-          <select
-            value={goal}
-            onChange={(e) => setGoal(e.target.value as Goal)}
-            aria-label="Goal"
-            className="rounded-lg border border-white/15 bg-white/5 px-3 py-3 text-sm outline-none"
-          >
-            {(["book", "quote", "buy", "contact"] as Goal[]).map((g) => (
-              <option key={g} value={g} className="bg-slate-900">
-                {g}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            disabled={busy}
-            className="whitespace-nowrap rounded-lg bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:opacity-50"
-          >
-            {busy ? "Checking…" : "Check my site"}
-          </button>
+      <form onSubmit={submit} className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <input
+            value={site}
+            onChange={(e) => setSite(e.target.value)}
+            placeholder="Your website (e.g. yoursalon.com)"
+            aria-label="Your website"
+            className="rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm outline-none focus:border-white/30"
+          />
+          <div className="flex gap-2">
+            <select
+              value={goal}
+              onChange={(e) => setGoal(e.target.value as Goal)}
+              aria-label="Goal"
+              className="rounded-lg border border-white/15 bg-white/5 px-3 py-3 text-sm outline-none"
+            >
+              {(["book", "quote", "buy", "contact"] as Goal[]).map((g) => (
+                <option key={g} value={g} className="bg-slate-900">
+                  {g}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              disabled={busy}
+              className="whitespace-nowrap rounded-lg bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:opacity-50"
+            >
+              {busy ? "Checking…" : "Check my site"}
+            </button>
+          </div>
         </div>
+        <input
+          value={urls}
+          onChange={(e) => setUrls(e.target.value)}
+          placeholder="Competitors (optional) — paste their sites, or leave blank to auto-find local ones"
+          aria-label="Competitor sites"
+          className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm outline-none focus:border-white/25"
+        />
       </form>
 
       {!report && !busy && (
-        <p className="mt-5 text-center text-sm text-white/40">
-          Just enter your site — we&rsquo;ll find your local competitors automatically and show you what an AI agent sees.
+        <p className="mt-4 text-center text-xs text-white/40">
+          Enter your site. Paste competitors for an instant head-to-head, or leave it blank and we&rsquo;ll try to find your
+          local market automatically. Using an agent? It can supply competitors it already knows.
         </p>
       )}
 
