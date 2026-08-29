@@ -77,10 +77,31 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Stu
   const { signal } = controller;
 
   // Track the live tool names for the on-screen panel and for idempotent phasing.
+  // Every studio tool is read-only: it fetches + measures remote sites and
+  // renders results into the on-screen workspace, but never changes the audited
+  // site or any external/user state. So we default readOnlyHint: true — the
+  // agent can chain audits and comparisons without stopping to ask the user.
+  // A tool can still override its own annotations if a future one writes state.
   const live = new Set<string>();
   const register: ModelContext["registerTool"] = (tool, opts) => {
     live.add(tool.name);
-    return mc.registerTool(tool, opts);
+    // "Loose schema, strict code": a tool must return a descriptive miss, never
+    // throw — a raw rejection is opaque to an agent and stalls it, while a text
+    // result lets it self-correct. Individual tools already handle facts.error;
+    // this wrapper is the backstop for an unexpected throw (e.g. our own API
+    // route failing) so nothing escapes execute() as a rejection.
+    const safeExecute: typeof tool.execute = async (input) => {
+      try {
+        return await tool.execute(input);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return text(`${tool.name} could not complete: ${msg}. Check the input and try again.`);
+      }
+    };
+    return mc.registerTool(
+      { ...tool, annotations: { readOnlyHint: true, ...tool.annotations }, execute: safeExecute },
+      opts
+    );
   };
 
   // 1. The primary action. This is the snippet the hackathon requires, shown

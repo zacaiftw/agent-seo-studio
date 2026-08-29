@@ -43,6 +43,9 @@ export interface ModelContext {
       name: string;
       description: string;
       inputSchema: Record<string, unknown>;
+      /** Behavioural hints an agent respects — notably `readOnlyHint`, which
+       * tells it the tool is safe to call without asking the user first. */
+      annotations?: { readOnlyHint?: boolean; [k: string]: unknown };
       execute: (input: Record<string, unknown>) => Promise<string | { content: Array<{ type: "text"; text: string }> }>;
     },
     options?: { signal?: AbortSignal }

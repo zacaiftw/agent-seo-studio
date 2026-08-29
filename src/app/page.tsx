@@ -191,12 +191,44 @@ export default function Home() {
     setLiveTools(tools.listNames());
   }, [workspace, market]);
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!urlInput.trim() || busy) return;
+  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); // required before respondWith()
+    // WebMCP declarative-form extensions to SubmitEvent — not in React's types.
+    const we = e.nativeEvent as SubmitEvent & {
+      agentInvoked?: boolean;
+      respondWith?: (r: Promise<unknown>) => void;
+    };
+    // When an agent invokes the form, it fills the field, so read from FormData
+    // rather than component state (which the agent never touched).
+    const fromForm = String(new FormData(e.currentTarget).get("url") ?? "").trim();
+    const url = (we.agentInvoked ? fromForm : urlInput).trim();
+    if (!url || busy) return;
+
+    if (we.agentInvoked) {
+      // Answer the agent with a text result instead of navigating — the whole
+      // point of respondWith(). The audit still renders into the shared workspace.
+      we.respondWith?.(
+        (async () => {
+          const entry = await runAudit(url);
+          const err = entry.audit.facts.error;
+          return {
+            content: [
+              {
+                type: "text",
+                text: err
+                  ? `Could not audit ${entry.url}: ${err}`
+                  : `Audited ${entry.url} — GEO-readiness ${entry.score.readiness}/100 (${entry.score.tier}). It's now a card in the on-screen workspace.`,
+              },
+            ],
+          };
+        })()
+      );
+      return;
+    }
+
     setBusy(true);
     try {
-      await runAudit(urlInput.trim());
+      await runAudit(url);
       setUrlInput("");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Audit failed");
@@ -265,16 +297,19 @@ export default function Home() {
 
       {showAdvanced && (
       <>
-      {/* The zero-JS WebMCP on-ramp we preach: two attributes on a form we
+      {/* The zero-JS WebMCP on-ramp we preach: these attributes on a form we
           already have make this same audit action agent-callable even where our
           JS registerTool bootstrap hasn't run. `name` on the input becomes the
-          tool's typed parameter automatically. */}
+          tool's typed parameter; `toolparamdescription` documents it for the
+          model; `toolautosubmit` lets the agent submit without a human click.
+          The onSubmit handler answers the agent via respondWith() (see above). */}
       <form
         onSubmit={onSubmit}
         className="mb-8 flex gap-2"
         {...{
           toolname: "audit_website_form",
           tooldescription: "Audit a website's SEO and GEO (AI-search) readiness by URL.",
+          toolautosubmit: "",
         }}
       >
         <input
@@ -284,6 +319,7 @@ export default function Home() {
           placeholder="example-bakery.com"
           className="flex-1 rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm outline-none focus:border-white/25"
           aria-label="Website URL to audit"
+          {...{ toolparamdescription: 'The website to audit, e.g. "example-bakery.com" or "https://example.com".' }}
         />
         <button
           type="submit"
