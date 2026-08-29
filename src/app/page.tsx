@@ -242,6 +242,16 @@ export default function Home() {
         </p>
       </header>
 
+      {!mcpReady && (
+        <div className="mb-6 rounded-xl border border-amber-400/25 bg-amber-400/[0.06] px-4 py-3 text-sm text-amber-200/90">
+          <strong className="text-amber-100">This browser doesn&apos;t expose WebMCP yet.</strong> The studio still works
+          for you by hand. In a WebMCP browser (Chrome/Edge, flag on), your own AI agent would see and call the tools
+          listed below — the whole point: your agent, nothing to configure, real named actions.
+        </div>
+      )}
+
+      <LiveToolsPanel tools={liveTools} ready={mcpReady} />
+
       <OwnerReport report={report} busy={reportBusy} onRun={runReport} needsMarket={needsMarket} detectedCity={detectedCity} />
 
       <div className="mt-10 border-t border-white/10 pt-6">
@@ -255,8 +265,20 @@ export default function Home() {
 
       {showAdvanced && (
       <>
-      <form onSubmit={onSubmit} className="mb-8 flex gap-2">
+      {/* The zero-JS WebMCP on-ramp we preach: two attributes on a form we
+          already have make this same audit action agent-callable even where our
+          JS registerTool bootstrap hasn't run. `name` on the input becomes the
+          tool's typed parameter automatically. */}
+      <form
+        onSubmit={onSubmit}
+        className="mb-8 flex gap-2"
+        {...{
+          toolname: "audit_website_form",
+          tooldescription: "Audit a website's SEO and GEO (AI-search) readiness by URL.",
+        }}
+      >
         <input
+          name="url"
           value={urlInput}
           onChange={(e) => setUrlInput(e.target.value)}
           placeholder="example-bakery.com"
@@ -346,6 +368,78 @@ export default function Home() {
         </a>
       </footer>
     </main>
+  );
+}
+
+/**
+ * The self-demo: this page's OWN registered WebMCP tools, live. State-dependent
+ * tools appear here the instant their precondition is met — a judge watching
+ * export_report light up the moment the first audit lands sees the article's
+ * "the available actions change with the page" thesis happen on our surface.
+ */
+const ALL_STUDIO_TOOLS = [
+  "audit_website",
+  "check_schema",
+  "check_webmcp",
+  "score_geo",
+  "suggest_fixes",
+  "compare_sites",
+  "scan_market",
+  "verify_journey",
+  "generate_fixes",
+  "preview_impact",
+  "verify_fix",
+  "export_report",
+  "analyze_gaps",
+] as const;
+
+const UNLOCK_HINT: Record<string, string> = {
+  verify_fix: "unlocks after your first audit",
+  export_report: "unlocks after your first audit",
+  analyze_gaps: "unlocks after a market scan",
+};
+
+function LiveToolsPanel({ tools, ready }: { tools: string[]; ready: boolean }) {
+  const liveSet = new Set(tools);
+  const liveCount = ALL_STUDIO_TOOLS.filter((t) => liveSet.has(t)).length;
+  return (
+    <details className="mb-6 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3" open>
+      <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-wider text-white/50">
+        <span className="text-white/70">Agent tools live on this page</span>
+        <span className="ml-2 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/60">
+          {ready ? `${liveCount}/${ALL_STUDIO_TOOLS.length} registered` : "WebMCP off"}
+        </span>
+        <span className="ml-2 font-normal normal-case tracking-normal text-white/40">
+          — the actions your agent can call change as the page does
+        </span>
+      </summary>
+      <ul className="mt-3 flex flex-wrap gap-1.5">
+        {ALL_STUDIO_TOOLS.map((name) => {
+          const live = liveSet.has(name);
+          return (
+            <li key={name}>
+              <span
+                title={live ? "registered — your agent can call this now" : UNLOCK_HINT[name] ?? "not yet registered"}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px] transition ${
+                  live
+                    ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                    : "border-white/10 bg-white/[0.02] text-white/35"
+                }`}
+              >
+                <span className={live ? "text-emerald-400" : "text-white/25"}>{live ? "●" : "○"}</span>
+                {name}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      {ready && liveCount < ALL_STUDIO_TOOLS.length && (
+        <p className="mt-2.5 text-[11px] text-white/40">
+          Greyed-out tools aren&apos;t registered yet — they appear the moment their precondition is met, and your
+          agent simply re-reads the list. Nothing special happens on the agent&apos;s side.
+        </p>
+      )}
+    </details>
   );
 }
 
