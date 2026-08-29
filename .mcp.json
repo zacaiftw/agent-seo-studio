@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "agent-seo-studio": {
+      "command": "node",
+      "args": ["bridge/mcp-bridge.mjs"],
+      "env": { "PAGE_URL": "https://agent-seo-studio.vercel.app/" }
+    }
+  }
+}
