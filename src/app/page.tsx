@@ -8,7 +8,7 @@ import type { StudioBridge, WorkspaceEntry, GeneratedKit } from "@/lib/mcp-types
 import type { MarketScan, GapAnalysis } from "@/lib/market";
 import type { JourneyReport, Goal } from "@/lib/journey";
 import type { MarketReport, Payoff } from "@/lib/report";
-import { registerStudioTools } from "@/lib/register-tools";
+import { registerStudioTools, type StudioTools } from "@/lib/register-tools";
 import { sameHost, prettyHost } from "@/lib/url";
 
 async function callReport(target: string, competitors: string[], goal: Goal, query?: string) {
@@ -78,6 +78,7 @@ export default function Home() {
   const [workspace, setWorkspace] = useState<WorkspaceEntry[]>([]);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [mcpReady, setMcpReady] = useState(false);
+  const [liveTools, setLiveTools] = useState<string[]>([]);
   const [urlInput, setUrlInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [market, setMarket] = useState<MarketState>(null);
@@ -154,7 +155,10 @@ export default function Home() {
     return journey;
   }, []);
 
-  // Register WebMCP tools once the API exists in this browser.
+  // Register WebMCP tools once the API exists in this browser. The tools handle
+  // is kept in a ref so a separate effect can phase state-dependent tools in as
+  // workspace/scan state changes, without re-registering everything.
+  const toolsRef = useRef<StudioTools | null>(null);
   useEffect(() => {
     if (typeof document === "undefined" || !document.modelContext) return;
     const bridge: StudioBridge = {
@@ -167,10 +171,25 @@ export default function Home() {
       clearWorkspace: () => setWorkspace([]),
       focus: (id) => setFocusedId(id),
     };
-    const controller = registerStudioTools(document.modelContext, bridge);
+    const tools = registerStudioTools(document.modelContext, bridge);
+    toolsRef.current = tools;
     setMcpReady(true);
-    return () => controller.abort();
+    setLiveTools(tools.listNames());
+    return () => {
+      tools.abort();
+      toolsRef.current = null;
+    };
   }, [runAudit, generateFixes, runScan, verifyFix, runJourneyCheck]);
+
+  // Phase state-dependent tools in as the page's state unlocks them — the
+  // article's "the available actions change with the page" idea, live on our
+  // own surface. Re-reads the registered set so the on-screen panel updates too.
+  useEffect(() => {
+    const tools = toolsRef.current;
+    if (!tools) return;
+    tools.sync({ workspaceSize: workspace.length, scanned: market != null });
+    setLiveTools(tools.listNames());
+  }, [workspace, market]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

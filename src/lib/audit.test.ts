@@ -115,6 +115,26 @@ test("agent-readiness: a site that already exposes tools gets no agent finding",
   assert.ok(!r.findings.some((f) => f.tag === "agent"));
 });
 
+test("webmcp ladder: a declarative-form site gets partial credit, not the full 'no tools' finding", () => {
+  const r = wrap(
+    facts({
+      agentReady: true,
+      webmcp: { rung: "declarative-form", confidence: "confirmed", signals: ["<form toolname=…>"], method: "static" },
+    })
+  );
+  assert.ok(!r.findings.some((f) => f.tag === "agent"), "no full-penalty agent finding");
+  const partial = r.findings.find((f) => f.tag === "agent-partial");
+  assert.ok(partial, "expected the agent-partial finding for a declarative-form site");
+  // The partial penalty scores strictly better than a site with no tools at all.
+  const noTools = wrap(
+    facts({ agentReady: false, webmcp: { rung: "none", confidence: "none", signals: [], method: "static" } })
+  );
+  assert.ok(
+    scoreGeo(r).readiness > scoreGeo(noTools).readiness,
+    "a declarative-form site should score higher than one with no agent tools"
+  );
+});
+
 test("readiness is clamped to 0–100 even when many defects stack", () => {
   const r = wrap(
     facts({

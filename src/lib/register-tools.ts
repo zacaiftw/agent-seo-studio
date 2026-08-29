@@ -44,17 +44,48 @@ function indent(s: string): string {
   return s.split("\n").map((l) => `     ${l}`).join("\n");
 }
 
+/** The live state of the studio the tool layer needs to decide which tools to
+ * expose. Passed to `sync` whenever it changes. This is the article's key idea:
+ * the available actions change with the state of the page. */
+export interface StudioState {
+  /** How many audits are in the shared workspace. */
+  workspaceSize: number;
+  /** Whether a market scan has run this session. */
+  scanned: boolean;
+}
+
+/** The tool layer's handle back to the app. `sync` re-evaluates which
+ * state-dependent tools should be live; `listNames` is the current registered
+ * set (drives the on-screen "this page's own tools" panel). `abort`
+ * unregisters everything on unmount/HMR. */
+export interface StudioTools {
+  abort: () => void;
+  sync: (state: StudioState) => void;
+  listNames: () => string[];
+}
+
 /**
- * Registers all six tools. Returns an AbortController; call .abort() to
- * unregister them (React cleanup on unmount / HMR).
+ * Register the studio's WebMCP tools, phasing the state-dependent ones in as the
+ * page's state unlocks them — the article's "the available actions change with
+ * the page" idea, demonstrated on this page's own surface. Core tools register
+ * immediately; `export_report` appears once the workspace is non-empty,
+ * `analyze_gaps` once a scan has run, `verify_fix` once at least one audit
+ * exists. Call `sync` whenever workspace/scan state changes.
  */
-export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): AbortController {
+export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): StudioTools {
   const controller = new AbortController();
   const { signal } = controller;
 
+  // Track the live tool names for the on-screen panel and for idempotent phasing.
+  const live = new Set<string>();
+  const register: ModelContext["registerTool"] = (tool, opts) => {
+    live.add(tool.name);
+    return mc.registerTool(tool, opts);
+  };
+
   // 1. The primary action. This is the snippet the hackathon requires, shown
   //    against a real tool rather than a toy.
-  mc.registerTool(
+  register(
     {
       name: "audit_website",
       description:
@@ -79,7 +110,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 2. Structured-data deep dive — the GEO differentiator.
-  mc.registerTool(
+  register(
     {
       name: "check_schema",
       description:
@@ -107,7 +138,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   // 2b. WebMCP-readiness — the differentiator: does the SITE itself expose tools
   //     an agent can call? This is the studio scoring another site on the very
   //     standard this studio is built on.
-  mc.registerTool(
+  register(
     {
       name: "check_webmcp",
       description:
@@ -146,7 +177,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 3. Score — reuses the ported readiness scorer.
-  mc.registerTool(
+  register(
     {
       name: "score_geo",
       description:
@@ -166,7 +197,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 4. Fixes — the creation beat: emits ready-to-paste JSON-LD.
-  mc.registerTool(
+  register(
     {
       name: "suggest_fixes",
       description:
@@ -189,7 +220,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 5. Compare — the workflow no generic SEO tool exposes to *your* agent.
-  mc.registerTool(
+  register(
     {
       name: "compare_sites",
       description:
@@ -233,7 +264,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 9. Scan market — the WebMCP-exclusive move. Audit a whole local market.
-  mc.registerTool(
+  register(
     {
       name: "scan_market",
       description:
@@ -269,7 +300,9 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 10. Analyze gaps — why the leaders win, for a specific target.
-  mc.registerTool(
+  //     Unlockable: only meaningful once a market scan has produced leaders to
+  //     compare against, so it's registered by the phase manager, not up front.
+  const registerAnalyzeGaps = () => register(
     {
       name: "analyze_gaps",
       description:
@@ -297,7 +330,8 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 11. Verify fix — close the loop: re-fetch and prove the score changed.
-  mc.registerTool(
+  //     Unlockable: nothing to verify until a site has been audited at least once.
+  const registerVerifyFix = () => register(
     {
       name: "verify_fix",
       description:
@@ -322,7 +356,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 12. Mystery shopper — can an agent actually finish the job on this site?
-  mc.registerTool(
+  register(
     {
       name: "verify_journey",
       description:
@@ -345,7 +379,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 7. Generate — the creation beat. Produce ready-to-ship JSON-LD + meta.
-  mc.registerTool(
+  register(
     {
       name: "generate_fixes",
       description:
@@ -378,7 +412,7 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 8. Preview impact — the payoff: score now vs. score if fixes applied.
-  mc.registerTool(
+  register(
     {
       name: "preview_impact",
       description:
@@ -406,7 +440,9 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
   );
 
   // 6. Export — the human keeps a real artifact.
-  mc.registerTool(
+  //     Unlockable: there's nothing to export from an empty workspace, so this
+  //     tool only appears once the first audit has landed.
+  const registerExportReport = () => register(
     {
       name: "export_report",
       description:
@@ -421,7 +457,29 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
     { signal }
   );
 
-  return controller;
+  // The phase manager: register each state-dependent tool exactly once, the
+  // moment its precondition first holds. This is the whole point — an agent that
+  // re-reads the tool list after acting finds new actions that weren't there
+  // before, driven purely by page state, exactly as the article describes.
+  const phased = new Set<string>();
+  const unlockOnce = (name: string, ready: boolean, doRegister: () => void) => {
+    if (ready && !phased.has(name)) {
+      phased.add(name);
+      doRegister();
+    }
+  };
+
+  const sync = (state: StudioState) => {
+    unlockOnce("verify_fix", state.workspaceSize > 0, registerVerifyFix);
+    unlockOnce("export_report", state.workspaceSize > 0, registerExportReport);
+    unlockOnce("analyze_gaps", state.scanned, registerAnalyzeGaps);
+  };
+
+  return {
+    abort: () => controller.abort(),
+    sync,
+    listNames: () => [...live],
+  };
 }
 
 async function ensureAudited(bridge: StudioBridge, url: string, businessName?: string): Promise<WorkspaceEntry> {
