@@ -30,6 +30,7 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     jsonLdTypes: ["LocalBusiness"],
     ogTags: { title: true, description: true, image: true },
     agentReady: true,
+    webmcp: { rung: "webmcp", confidence: "confirmed", signals: ["document.modelContext in HTML"], method: "static" },
     detected: { city: null, region: null, businessType: null }, affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
     noindex: false,
     likelyClientRendered: false,

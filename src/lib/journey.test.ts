@@ -15,6 +15,7 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     title: "t", metaDescription: "d", h1Count: 1, wordCount: 800, hasViewport: true, hasCanonical: true,
     imgCount: 0, imgMissingAlt: 0, jsonLdBlocks: 1, jsonLdTypes: ["LocalBusiness"],
     ogTags: { title: true, description: true, image: true }, agentReady: false,
+    webmcp: { rung: "none", confidence: "none", signals: [], method: "static" },
     detected: { city: null, region: null, businessType: null }, affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
     noindex: false, likelyClientRendered: false, textSample: "s", ...over,
   };

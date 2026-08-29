@@ -27,6 +27,8 @@ const WEIGHTS: Record<string, number> = {
   h1: 8,
   og: 6,
   agent: 6,
+  // Half the penalty of no agent tools at all: a declarative form is real progress.
+  "agent-partial": 3,
   canonical: 5,
   alt: 4,
 };

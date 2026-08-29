@@ -38,6 +38,21 @@ export interface AuditFacts {
    * detected across the HTML and its linked scripts. Best-effort: tools register at runtime, so this is
    * a signal a raw fetch can see, not a guarantee. The "can the agent finish the job?" dimension. */
   agentReady: boolean;
+  /** The site's rung on the agent-reachability ladder (Akshay Pachaar's "six ways an
+   * agent can reach an app"), with the confidence a static server-fetch can honestly
+   * claim. `webmcp` = it declares its own actions; `declarative-form` = a <form> carries
+   * WebMCP's zero-JS `toolname`/`tooldescription` attributes; `none` = an agent must
+   * guess from generic HTML. Confidence is "confirmed" only when the signal is
+   * unambiguous in served markup, "likely" when inferred from linked JS. A deep
+   * (headless) re-check can upgrade this to "confirmed" for client-registered tools. */
+  webmcp: {
+    rung: "webmcp" | "declarative-form" | "none";
+    confidence: "confirmed" | "likely" | "none";
+    /** The concrete tokens/attributes we matched, for an honest, citable finding. */
+    signals: string[];
+    /** How the signal was obtained: static fetch by default; "deep" once a headless check confirms it. */
+    method: "static" | "deep";
+  };
   /** Best-effort location + business type pulled from the site's JSON-LD, so we
    * can auto-find its local competitors. Null when the site doesn't declare it. */
   detected: { city: string | null; region: string | null; businessType: string | null };
@@ -223,8 +238,48 @@ async function safeFetch(url: string, signal: AbortSignal, hop = 0): Promise<Res
  * and greps for the modelContext/registerTool signature. Bounded so a heavy site
  * can't turn one audit into dozens of fetches.
  */
+/** The WebMCP JS API signature: document.modelContext.registerTool and its kin. */
+const WEBMCP_RE = /modelContext|registerTool|useWebMCPTool|navigator\.modelContext/i;
+/** The zero-JS declarative on-ramp: a <form toolname="…" tooldescription="…">.
+ * This is the cheapest way a site declares an action, and the one Akshay's
+ * article tells owners to start with — so we detect and reward it explicitly. */
+const TOOL_FORM_RE = /<form\b[^>]*\btoolname\s*=/i;
+
+export type WebMcpSignal = AuditFacts["webmcp"];
+
+/**
+ * Rank a site on the agent-reachability ladder from served HTML alone.
+ *
+ * Deep: a lot of judgement (which rung, how sure) behind one call that returns a
+ * small typed verdict. Confidence is honest — inline HTML is "confirmed", a match
+ * only in a linked bundle is "likely", because a raw fetch can't run the JS that
+ * would register the tool. A headless deep-check can later upgrade to "confirmed".
+ */
+async function detectWebMcp(html: string, pageUrl: string, signal: AbortSignal): Promise<WebMcpSignal> {
+  const signals: string[] = [];
+
+  // Rung 1 (top): a declared WebMCP tool, visible in the served HTML.
+  if (WEBMCP_RE.test(html)) {
+    return { rung: "webmcp", confidence: "confirmed", signals: ["document.modelContext in HTML"], method: "static" };
+  }
+  // Rung 2: the zero-JS declarative form on-ramp.
+  if (TOOL_FORM_RE.test(html)) {
+    signals.push("<form toolname=…>");
+  }
+
+  // Rung 1, deferred: the reference may live in a linked bundle that registers
+  // tools at runtime. Finding it there is a strong signal but not a guarantee.
+  if (await scriptsReferenceWebMCP(html, pageUrl, signal)) {
+    return { rung: "webmcp", confidence: "likely", signals: ["modelContext in linked script"], method: "static" };
+  }
+
+  if (signals.length) {
+    return { rung: "declarative-form", confidence: "confirmed", signals, method: "static" };
+  }
+  return { rung: "none", confidence: "none", signals: [], method: "static" };
+}
+
 async function scriptsReferenceWebMCP(html: string, pageUrl: string, signal: AbortSignal): Promise<boolean> {
-  const WEBMCP_RE = /modelContext|registerTool|useWebMCPTool/i;
   let base: URL;
   try {
     base = new URL(pageUrl);
@@ -276,6 +331,7 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     jsonLdTypes: [],
     ogTags: { title: false, description: false, image: false },
     agentReady: false,
+    webmcp: { rung: "none", confidence: "none", signals: [], method: "static" },
     detected: { city: null, region: null, businessType: null },
     affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
     noindex: false,
@@ -312,13 +368,11 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     const xRobots = res.headers.get("x-robots-tag") ?? "";
     const noindex = /noindex/i.test(robotsMeta) || /noindex/i.test(xRobots);
 
-    // Agent-readiness: does this site expose WebMCP tools? The signature is
-    // document.modelContext / registerTool. Tools register at runtime, so we
-    // detect the reference in the HTML and (if not found there) in the site's
-    // own script bundles — a best-effort signal a server fetch can see.
-    const WEBMCP_RE = /modelContext|registerTool|useWebMCPTool|navigator\.modelContext/i;
-    let agentReady = WEBMCP_RE.test(html);
-    if (!agentReady) agentReady = await scriptsReferenceWebMCP(html, res.url || url, controller.signal);
+    // Agent-readiness: which rung of the reachability ladder does this site sit on?
+    // See detectWebMcp — it distinguishes a declared WebMCP tool from the zero-JS
+    // declarative-form on-ramp, and reports the confidence a static fetch can claim.
+    const webmcp = await detectWebMcp(html, res.url || url, controller.signal);
+    const agentReady = webmcp.rung !== "none";
 
     const affordances = extractAffordances(html);
 
@@ -346,6 +400,7 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
         image: /<meta[^>]*property=["']og:image["']/i.test(html),
       },
       agentReady,
+      webmcp,
       detected: jsonLd.detected,
       affordances,
       noindex,
@@ -408,7 +463,9 @@ export function deriveFindings(f: AuditFacts): Finding[] {
   // site exposes WebMCP tools yet, so its absence is an opportunity we surface,
   // not a defect we punish. Low severity, and only when nothing more urgent
   // blocks the site from being found at all.
-  if (!f.agentReady && !f.noindex)
+  if (f.webmcp.rung === "declarative-form" && !f.noindex)
+    out.push({ tag: "agent-partial", severity: "low", line: "This site uses the zero-JS WebMCP on-ramp — a <form toolname=…> an agent can call — but hasn't declared its richer actions (book, buy, account). A good start; register the rest as WebMCP tools." });
+  else if (!f.agentReady && !f.noindex)
     out.push({ tag: "agent", severity: "low", line: "No agent tools detected — an AI agent visiting this site can read it but can't act on it (search, book, buy). Sites that expose WebMCP tools let a visitor's agent finish the job." });
   if (f.likelyClientRendered)
     out.push({ tag: "spa", severity: "medium", line: "Page renders its content with JavaScript — search crawlers and AI engines that don't run JS see a near-empty page. Measured on the initial HTML only." });

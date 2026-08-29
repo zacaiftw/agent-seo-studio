@@ -104,6 +104,47 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Abo
     { signal }
   );
 
+  // 2b. WebMCP-readiness — the differentiator: does the SITE itself expose tools
+  //     an agent can call? This is the studio scoring another site on the very
+  //     standard this studio is built on.
+  mc.registerTool(
+    {
+      name: "check_webmcp",
+      description:
+        "Check whether a site is WebMCP-ready — i.e. whether it declares its own actions (document.modelContext.registerTool, or the zero-JS <form toolname=…> on-ramp) so a visitor's AI agent can ACT on it, not just read it. Reports the site's rung on the agent-reachability ladder and how confident the check is (a static server-fetch can't run JS that registers tools at runtime, so it says so honestly). Audits the site first if needed.",
+      inputSchema: {
+        type: "object",
+        properties: { url: { type: "string", description: "The website to check for WebMCP readiness." } },
+        required: ["url"],
+      },
+      execute: async ({ url }) => {
+        const entry = await ensureAudited(bridge, String(url));
+        if (entry.audit.facts.error) return text(`Could not check ${entry.url}: ${entry.audit.facts.error}`);
+        const w = entry.audit.facts.webmcp;
+        const rungLabel =
+          w.rung === "webmcp"
+            ? "declares WebMCP tools — an agent can call named actions directly"
+            : w.rung === "declarative-form"
+              ? "uses the zero-JS declarative on-ramp (<form toolname=…>) — a start, but its richer actions aren't declared yet"
+              : "declares no agent actions — a visitor's agent must guess from generic HTML";
+        const conf =
+          w.confidence === "confirmed"
+            ? "Confirmed in served markup."
+            : w.confidence === "likely"
+              ? "Likely — matched in a linked script bundle; tools register at runtime, so a static fetch can't fully confirm."
+              : "No signal in the served HTML or its linked scripts.";
+        const next =
+          w.rung === "none"
+            ? " Call suggest_fixes for a ready-to-paste registerTool starter, or add two attributes to a form you already have."
+            : "";
+        return text(
+          `${entry.url} — WebMCP: ${rungLabel}.\n${conf}${w.signals.length ? `\nSignals: ${w.signals.join(", ")}.` : ""}${next}`
+        );
+      },
+    },
+    { signal }
+  );
+
   // 3. Score — reuses the ported readiness scorer.
   mc.registerTool(
     {
