@@ -35,7 +35,9 @@ That last step is **creation, not just analysis**: `suggest_fixes` returns ready
 
 ## How WebMCP is implemented
 
-All six tools are registered client-side against `document.modelContext` in [`src/lib/register-tools.ts`](src/lib/register-tools.ts). Each tool calls one server route ([`/api/audit`](src/app/api/audit/route.ts)) that does the cross-origin fetch and measurement, then mutates the shared React workspace through a small `StudioBridge` seam so the tools never touch React directly.
+The tools are registered client-side against `document.modelContext` in [`src/lib/register-tools.ts`](src/lib/register-tools.ts). Each tool calls one server route ([`/api/audit`](src/app/api/audit/route.ts)) that does the cross-origin fetch and measurement, then mutates the shared React workspace through a small `StudioBridge` seam so the tools never touch React directly.
+
+**The tool set changes with the page's state** — the key WebMCP idea. Core tools register immediately; `verify_fix` and `export_report` appear only once the workspace has an audit, and `analyze_gaps` only once a market scan has run. An agent that re-reads the tool list after acting finds new actions that weren't there before, driven purely by state. The on-screen **"Agent tools live on this page"** panel shows this happening — greyed tools light up the instant their precondition is met. And because `check_webmcp` measures whether *another* site exposes WebMCP tools, this is a WebMCP tool that scores sites on the WebMCP standard itself, with an honest static/deep confidence split (see [`webmcp-deep.ts`](src/lib/webmcp-deep.ts)).
 
 The core registration, verbatim:
 
@@ -62,21 +64,25 @@ document.modelContext.registerTool({
 });
 ```
 
-### The eleven tools
+### The thirteen tools
+
+Ten register up front; the three marked **(phased)** appear only once the page's state unlocks them.
 
 | Tool | What the agent can do |
 |---|---|
 | `audit_website` | Fetch + measure a site; add a results card to the workspace |
 | `check_schema` | Deep-dive a site's JSON-LD (block count, @types, malformed blocks) |
+| `check_webmcp` | **Is this site WebMCP-ready?** Rank it on the agent-reachability ladder (declares tools › zero-JS `<form toolname>` › none) with honest confidence |
 | `score_geo` | Return the 0–100 GEO-readiness score and tier |
 | `suggest_fixes` | Prioritized fixes **including ready-to-paste JSON-LD** |
 | `compare_sites` | Audit 2+ sites and rank them by readiness (you vs competitors) |
 | `scan_market` | **Audit a whole local market** — auto-discover via a query, or a URL list |
-| `analyze_gaps` | What the market leaders share that a target site lacks |
+| `verify_journey` | Mystery-shop a site: could an agent actually **book / buy / quote / contact**, or where does it get stuck? |
 | `generate_fixes` | **Create** ready-to-ship JSON-LD + optimized meta from the site's real content |
 | `preview_impact` | Project the score **if the fixes were applied** (e.g. 31 → 83) |
-| `verify_fix` | Re-fetch a site live and **prove** the score actually changed |
-| `export_report` | Emit a shareable Markdown report of the whole workspace |
+| `verify_fix` *(phased)* | Re-fetch a site live and **prove** the score actually changed |
+| `export_report` *(phased)* | Emit a shareable Markdown report of the whole workspace |
+| `analyze_gaps` *(phased)* | What the market leaders share that a target site lacks |
 
 ### The war room — the WebMCP-exclusive move
 
@@ -103,7 +109,8 @@ No authentication required.
 2. Visit the live URL. The badge top-right should read **"WebMCP connected."**
 3. Open your agent / the Model Context inspector and try:
    - `scan_market` with `urls: ["salonrepublic.com", "sonage.com", "boldenbeauty.com"], target: "boldenbeauty.com"` — the war-room leaderboard + gap analysis
-   - `audit_website` with `url: "example.com"`
+   - `audit_website` with `url: "example.com"` — then watch the **"Agent tools live on this page"** panel: `verify_fix` and `export_report` light up the instant this first audit lands
+   - `check_webmcp` with `url: "example.com"` — the studio scoring a site on the WebMCP standard itself
    - `generate_fixes` with `url: "example.com"` — ready-to-paste JSON-LD
    - `preview_impact` with `url: "example.com"` — the 31 → 83 projection
    - `export_report` — get the full Markdown report
@@ -120,7 +127,7 @@ npm install
 npm run dev      # http://localhost:3000
 # or a production build:
 npm run build && npm start
-npm test         # 20 unit tests on the pure audit/score/generate logic
+npm test         # 56 unit tests: pure audit/score/generate logic + WebMCP tool phasing
 ```
 
 ### Optional environment variables
@@ -136,6 +143,20 @@ ANTHROPIC_API_KEY=sk-ant-... # uses claude-sonnet-5
 If neither is set, generation falls back to deterministic output from the measured
 facts — always valid, never fabricated.
 
+**`check_webmcp` deep tier (optional, off by default):** static detection reads a
+site's HTML + linked scripts and reports "likely" for runtime-registered tools it
+can't fully confirm. To confirm them with a real headless load, install a browser
+and set the flag:
+
+```
+npm i -D puppeteer                 # brings its own Chromium
+WEBMCP_DEEP_CHECK=1 npm run dev
+```
+
+Isolated in [`webmcp-deep.ts`](src/lib/webmcp-deep.ts) behind an indirect dynamic
+import, so the serverless bundle never traces into puppeteer and the live demo path
+is unchanged.
+
 ## Architecture
 
 ```
@@ -146,7 +167,8 @@ src/
   lib/
     audit.ts            # measures concrete facts; never guesses (SPA-honest)
     score.ts            # GEO-readiness scoring + fix suggestions (+ JSON-LD)
-    register-tools.ts   # the six document.modelContext.registerTool calls
+    register-tools.ts   # the document.modelContext.registerTool calls + state-driven phasing
+    webmcp-deep.ts      # optional headless deep-check for check_webmcp (flagged, off by default)
     mcp-types.ts        # WebMCP typings + the StudioBridge seam
 ```
 
