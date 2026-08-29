@@ -551,32 +551,32 @@ function OwnerReport({
             aria-label="Your website"
             className="rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm outline-none focus:border-white/30"
           />
-          <div className="flex gap-2">
-            <select
-              value={goal}
-              onChange={(e) => setGoal(e.target.value as Goal)}
-              aria-label="Goal"
-              className="rounded-lg border border-white/15 bg-white/5 px-3 py-3 text-sm outline-none"
-            >
-              {(["book", "quote", "buy", "contact"] as Goal[]).map((g) => (
-                <option key={g} value={g} className="bg-slate-900">
-                  {g}
-                </option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              disabled={busy}
-              className="whitespace-nowrap rounded-lg bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:opacity-50"
-            >
-              {busy ? "Checking…" : "Check my site"}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={busy}
+            className="whitespace-nowrap rounded-lg bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:opacity-50"
+          >
+            {busy ? "Checking…" : "Check my site"}
+          </button>
         </div>
+        <label className="flex flex-wrap items-center gap-2 text-sm text-white/60">
+          What should a customer be able to do on your site?
+          <select
+            value={goal}
+            onChange={(e) => setGoal(e.target.value as Goal)}
+            aria-label="What customers do on your site"
+            className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-white/30"
+          >
+            <option value="book" className="bg-slate-900">Book an appointment</option>
+            <option value="buy" className="bg-slate-900">Buy something</option>
+            <option value="quote" className="bg-slate-900">Get a quote</option>
+            <option value="contact" className="bg-slate-900">Contact the business</option>
+          </select>
+        </label>
         <input
           value={urls}
           onChange={(e) => setUrls(e.target.value)}
-          placeholder="Competitors (optional) — paste their sites, or leave blank to auto-find local ones"
+          placeholder="Competitors (optional) — paste their sites to compare head-to-head"
           aria-label="Competitor sites"
           className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm outline-none focus:border-white/25"
         />
@@ -584,17 +584,23 @@ function OwnerReport({
 
       {!report && !busy && (
         <p className="mt-4 text-center text-xs text-white/40">
-          Enter your site. Paste competitors for an instant head-to-head, or leave it blank and we&rsquo;ll try to find your
-          local market automatically. Using an agent? It can supply competitors it already knows.
+          Enter your site and get your report. Add competitors for a head-to-head, or leave it blank — you can compare
+          later. Using an agent? It can supply competitors it already knows.
         </p>
       )}
 
-      {/* Fallback: we couldn't detect the market from the site alone. */}
+      {/* Optional next step — never a blocker. The single-site report already
+          shows above; competitors just make it a head-to-head. */}
       {report && needsMarket && (
-        <form onSubmit={submitMarket} className="mt-5 rounded-xl border border-amber-400/25 bg-amber-400/[0.05] p-4">
-          <p className="mb-3 text-sm text-amber-100/90">
-            We couldn&rsquo;t detect your market from your site{detectedCity ? ` (we did find you're in ${detectedCity})` : ""}. Tell us
-            and we&rsquo;ll find your competitors:
+        <details className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <summary className="cursor-pointer list-none text-sm font-medium text-white/70">
+            + Compare against local competitors{" "}
+            <span className="font-normal text-white/40">(optional — see how you stack up)</span>
+          </summary>
+          <form onSubmit={submitMarket} className="mt-4">
+          <p className="mb-3 text-xs text-white/50">
+            {detectedCity ? `We found you're in ${detectedCity}. ` : ""}Tell us your business type and city and we&rsquo;ll find
+            competitors for you:
           </p>
           <div className="flex flex-wrap gap-2">
             <input
@@ -629,7 +635,8 @@ function OwnerReport({
             aria-label="Competitor URLs"
             className="mt-1 w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-sm outline-none"
           />
-        </form>
+          </form>
+        </details>
       )}
 
       {report && (
