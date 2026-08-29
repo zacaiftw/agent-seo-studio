@@ -4,12 +4,14 @@
  * The static audit reads served HTML and linked scripts; it can't run the
  * JavaScript that registers WebMCP tools at runtime, so it reports "likely"
  * rather than "confirmed" for client-registered tools. This module loads the
- * page in a real headless browser, lets its JS run, and reads
- * `document.modelContext` for the actual registered tool names.
+ * page in a real headless browser, lets its JS run, and calls
+ * `document.modelContext.getTools()` for the actual registered tool names. (A
+ * WebMCP browser exposes `modelContext` on every page, so its presence proves
+ * nothing — only a non-empty getTools() means the site declared actions.)
  *
  * It is deliberately OFF by default and isolated in its own file so the
  * serverless audit path never imports puppeteer. It runs only when
- * WEBMCP_DEEP_CHECK is set AND `puppeteer-core` (+ a Chromium) is installed —
+ * WEBMCP_DEEP_CHECK is set AND `puppeteer` (+ a Chromium) is installed —
  * the local/flagged path. A failure here is never fatal: the caller keeps the
  * honest static signal.
  *
@@ -41,23 +43,37 @@ export async function deepCheckWebMcp(url: string): Promise<WebMcpSignal | null>
     browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     const page = (await browser.newPage()) as {
       goto: (u: string, o: Record<string, unknown>) => Promise<unknown>;
-      evaluate: <T>(fn: () => T) => Promise<T>;
+      evaluate: <T>(fn: () => Promise<T> | T) => Promise<T>;
     };
     await page.goto(url, { waitUntil: "networkidle2", timeout: 15000 });
+    // A WebMCP browser exposes document.modelContext on EVERY page — its mere
+    // presence proves nothing about the site. The real signal is whether the
+    // SITE registered any tools, read via getTools(). Give client JS a beat first.
+    await new Promise((r) => setTimeout(r, 1200));
 
-    const toolNames = await page.evaluate<string[]>(() => {
-      const mc = (document as unknown as { modelContext?: { getTools?: () => unknown } }).modelContext;
-      if (!mc) return [];
-      // Prefer a real tool enumeration when the browser exposes one; otherwise
-      // the mere presence of modelContext is itself confirmation.
-      const anyMc = mc as { _tools?: Array<{ name?: string }>; getTools?: () => unknown };
-      const list = Array.isArray(anyMc._tools) ? anyMc._tools : [];
-      return list.map((t) => t?.name).filter((n): n is string => typeof n === "string");
+    const names = await page.evaluate<string[]>(async () => {
+      const mc = (document as unknown as { modelContext?: { getTools?: () => Promise<unknown> } }).modelContext;
+      if (!mc || typeof mc.getTools !== "function") return [];
+      try {
+        const tools = await mc.getTools();
+        if (!Array.isArray(tools)) return [];
+        return tools
+          .map((t) => (t as { name?: unknown })?.name)
+          .filter((n): n is string => typeof n === "string");
+      } catch {
+        return [];
+      }
     });
 
-    // modelContext existed (evaluate returned an array, even if empty) => confirmed.
-    const signals = toolNames.length ? toolNames.map((n) => `tool: ${n}`) : ["document.modelContext present at runtime"];
-    return { rung: "webmcp", confidence: "confirmed", signals, method: "deep" };
+    // No tools registered => the site doesn't declare WebMCP actions, regardless
+    // of the browser API. Return null so the honest static verdict stands.
+    if (names.length === 0) return null;
+    return {
+      rung: "webmcp",
+      confidence: "confirmed",
+      signals: names.map((n) => `tool: ${n}`),
+      method: "deep",
+    };
   } catch {
     // No puppeteer installed, launch failed, navigation timed out — the static
     // signal stands. Deep check is best-effort by design.
