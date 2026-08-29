@@ -82,6 +82,7 @@ export interface AuditResult {
 }
 
 import { assertHttpScheme, assertPublicHost, BlockedUrlError } from "./ssrf";
+import { deepCheckEnabled, deepCheckWebMcp } from "./webmcp-deep";
 
 const UA =
   "Mozilla/5.0 (compatible; AgentSEOStudio/1.0; +https://github.com/zacaiftw/agent-seo-studio)";
@@ -371,7 +372,14 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     // Agent-readiness: which rung of the reachability ladder does this site sit on?
     // See detectWebMcp — it distinguishes a declared WebMCP tool from the zero-JS
     // declarative-form on-ramp, and reports the confidence a static fetch can claim.
-    const webmcp = await detectWebMcp(html, res.url || url, controller.signal);
+    let webmcp = await detectWebMcp(html, res.url || url, controller.signal);
+    // Deep tier (flagged, off by default): if a headless load can confirm
+    // runtime-registered tools that the static pass could only call "likely",
+    // upgrade the signal. Never fatal — a null result leaves the static verdict.
+    if (webmcp.confidence !== "confirmed" && deepCheckEnabled()) {
+      const deep = await deepCheckWebMcp(res.url || url);
+      if (deep) webmcp = deep;
+    }
     const agentReady = webmcp.rung !== "none";
 
     const affordances = extractAffordances(html);
