@@ -13,6 +13,7 @@
 import type { ModelContext, StudioBridge, WorkspaceEntry } from "./mcp-types";
 import type { Fix } from "./score";
 import { hostKey, prettyHost as host } from "./url";
+import { detectEngine } from "./engine";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -27,16 +28,9 @@ function text(s: string) {
  */
 function recordCall(tool: string, ok: boolean, latencyMs: number): void {
   if (typeof fetch !== "function" || typeof navigator === "undefined") return;
-  const ua = navigator.userAgent.toLowerCase();
-  const engine = ua.includes("chatgpt") || ua.includes("openai")
-    ? "ChatGPT"
-    : ua.includes("perplexity")
-      ? "Perplexity"
-      : ua.includes("claude") || ua.includes("anthropic")
-        ? "Claude"
-        : ua.includes("gemini")
-          ? "Gemini"
-          : "";
+  // Detect the engine client-side from the same shared table the server uses, so
+  // the two can't drift; "" lets the server fall back to its own UA read.
+  const engine = detectEngine(navigator.userAgent);
   void fetch("/api/telemetry", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

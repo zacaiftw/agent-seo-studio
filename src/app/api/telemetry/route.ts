@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { detectEngine } from "@/lib/engine";
 
 /**
  * Agent-usage telemetry — the "are agents actually using this?" proof.
@@ -28,18 +29,6 @@ interface Hit {
 const MAX = 5000;
 const hits: Hit[] = [];
 
-/** Map a browser UA to the AI engine driving it, best-effort. */
-function detectEngine(ua: string): string {
-  const s = ua.toLowerCase();
-  if (s.includes("chatgpt") || s.includes("openai")) return "ChatGPT";
-  if (s.includes("perplexity")) return "Perplexity";
-  if (s.includes("claude") || s.includes("anthropic")) return "Claude";
-  if (s.includes("gemini") || s.includes("google-ai")) return "Gemini";
-  if (s.includes("edg/")) return "Edge";
-  if (s.includes("chrome/")) return "Chrome";
-  return "Other";
-}
-
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -55,7 +44,7 @@ export async function POST(req: NextRequest) {
     tool,
     ok: body.ok !== false,
     latencyMs: Math.max(0, Math.round(Number(body.latencyMs) || 0)),
-    engine: clientEngine || detectEngine(req.headers.get("user-agent") ?? ""),
+    engine: clientEngine || detectEngine(req.headers.get("user-agent") ?? "") || "Other",
     at: Date.now(),
   });
   if (hits.length > MAX) hits.splice(0, hits.length - MAX);

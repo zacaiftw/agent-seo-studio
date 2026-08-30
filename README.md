@@ -94,6 +94,18 @@ market leaderboard, and `analyze_gaps` tells a target site exactly what the lead
 do that it doesn't. Discovery uses OpenStreetMap (keyless, no setup); an explicit
 URL list always works as a discovery-free fallback.
 
+**Competitors always run on the owner report.** When you check a single site, the
+report auto-fills competitors so you never dead-end on an empty comparison. It
+tries three tiers in order: (1) live OpenStreetMap discovery from the site's
+detected city + business type; (2) if that's empty — OSM is free and often
+sparse — a small **curated set of well-known sites in the category** (both
+physical categories like restaurant/salon and digital ones like SaaS/agency,
+which OSM can't map at all); (3) only if neither yields anything does it ask you
+to paste competitors. When the curated set is used, the report says so plainly
+("national benchmarks — paste your real local competitors to swap them in") — the
+selection is a convenience, but every listed competitor is still audited for
+real, so no fact is invented.
+
 **`generate_fixes` is provider-agnostic:** it uses OpenAI (`OPENAI_API_KEY`) or
 Anthropic (`ANTHROPIC_API_KEY`) to tailor copy to the site's real content when a
 key is present, and falls back to deterministic generation from the measured
