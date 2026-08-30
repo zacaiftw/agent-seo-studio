@@ -15,6 +15,14 @@ import type { MarketScan, MarketEntry } from "./market";
 import { runJourney, type Goal } from "./journey";
 import { prettyHost, sameHost } from "./url";
 
+/** A measured fact shown as a label + value row (the FTW-style data grid). */
+export interface FactRow {
+  label: string;
+  value: string;
+  /** Drives the value color: ok=green, warn=amber, bad=red, neutral=default. */
+  state: "ok" | "warn" | "bad" | "neutral";
+}
+
 export interface Payoff {
   /** The one-line gut-punch shown big at the top of the tab. */
   headline: string;
@@ -22,6 +30,8 @@ export interface Payoff {
   tone: "bad" | "mixed" | "good" | "unknown";
   /** A few supporting lines, kept short. */
   detail: string[];
+  /** Measured facts for this dimension — the data grid under the headline. */
+  facts: FactRow[];
 }
 
 export interface MarketReport {
@@ -39,6 +49,61 @@ function loaded(scan: MarketScan): MarketEntry[] {
   return scan.ranked.filter((e) => !e.audit.facts.error);
 }
 
+const NONE: FactRow[] = [];
+
+/** Measured facts for the "can an agent act on you?" dimension. */
+function bookableFacts(e: MarketEntry | undefined): FactRow[] {
+  if (!e) return NONE;
+  const f = e.audit.facts;
+  const rung =
+    f.webmcp.rung === "webmcp" ? { value: "Declares agent tools", state: "ok" as const }
+    : f.webmcp.rung === "declarative-form" ? { value: "Zero-JS form on-ramp", state: "warn" as const }
+    : { value: "None — agent must guess", state: "bad" as const };
+  return [
+    { label: "Agent-reachability", value: rung.value, state: rung.state },
+    { label: "Forms on page", value: String(f.affordances.forms), state: f.affordances.forms > 0 ? "ok" : "warn" },
+    { label: "Booking / checkout signals", value: f.affordances.signals.length ? f.affordances.signals.slice(0, 3).join(", ") : "none found", state: f.affordances.signals.length ? "ok" : "warn" },
+    { label: "Contact path", value: f.affordances.hasTel || f.affordances.hasMailto ? [f.affordances.hasTel && "phone", f.affordances.hasMailto && "email"].filter(Boolean).join(" + ") : "no direct contact", state: f.affordances.hasTel || f.affordances.hasMailto ? "ok" : "bad" },
+  ];
+}
+
+/** Measured facts for the "can AI search read you?" dimension. */
+function visibleFacts(e: MarketEntry | undefined): FactRow[] {
+  if (!e) return NONE;
+  const f = e.audit.facts;
+  const types = f.jsonLdTypes.filter((t) => t !== "(unparseable)");
+  return [
+    { label: "Structured data (JSON-LD)", value: f.jsonLdBlocks ? `${f.jsonLdBlocks} block${f.jsonLdBlocks > 1 ? "s" : ""}: ${types.join(", ") || "unnamed"}` : "none", state: f.jsonLdBlocks ? "ok" : "bad" },
+    { label: "Meta description", value: f.metaDescription ? `present (${f.metaDescription.length} chars)` : "missing", state: f.metaDescription ? "ok" : "bad" },
+    { label: "Title tag", value: f.title ? `"${f.title.slice(0, 48)}${f.title.length > 48 ? "…" : ""}"` : "missing", state: f.title ? "ok" : "bad" },
+    { label: "Social / OG image", value: f.ogTags.image ? "present" : "missing", state: f.ogTags.image ? "ok" : "warn" },
+    { label: "Indexable by crawlers", value: f.noindex ? "BLOCKED (noindex)" : "yes", state: f.noindex ? "bad" : "ok" },
+  ];
+}
+
+/** Measured performance + structure facts for the rank dimension. */
+function rankFacts(e: MarketEntry | undefined): FactRow[] {
+  if (!e) return NONE;
+  const f = e.audit.facts;
+  return [
+    { label: "GEO-readiness score", value: `${e.score.readiness}/100 (${e.score.tier})`, state: e.score.readiness >= 65 ? "ok" : e.score.readiness >= 40 ? "warn" : "bad" },
+    { label: "Load time", value: `${f.loadMs}ms`, state: f.loadMs < 1000 ? "ok" : f.loadMs < 2500 ? "warn" : "bad" },
+    { label: "Content", value: `${f.wordCount} words · ${f.h1Count} H1`, state: f.wordCount >= 300 ? "ok" : "warn" },
+    { label: "Images missing alt", value: f.imgCount ? `${f.imgMissingAlt} of ${f.imgCount}` : "no images", state: f.imgMissingAlt === 0 ? "ok" : "warn" },
+    { label: "HTTPS", value: f.https ? "yes" : "no", state: f.https ? "ok" : "bad" },
+  ];
+}
+
+/** The actual findings list, as fact rows, for the Fix tab. */
+function fixFacts(e: MarketEntry | undefined): FactRow[] {
+  if (!e) return NONE;
+  return e.audit.findings.slice(0, 8).map((fi) => ({
+    label: fi.severity === "high" ? "High" : fi.severity === "medium" ? "Medium" : "Low",
+    value: fi.line,
+    state: fi.severity === "high" ? "bad" : fi.severity === "medium" ? "warn" : "neutral",
+  }));
+}
+
 export function buildReport(scan: MarketScan, targetUrl: string, goal: Goal = "book"): MarketReport {
   const targetHost = prettyHost(targetUrl);
   const sites = loaded(scan);
@@ -50,10 +115,10 @@ export function buildReport(scan: MarketScan, targetUrl: string, goal: Goal = "b
     targetHost,
     competitorCount: competitors.length,
     comparable,
-    bookable: bookablePayoff(target, competitors, targetHost, goal),
-    visible: visiblePayoff(target, competitors, targetHost),
-    rank: rankPayoff(scan, target, targetHost),
-    fix: fixPayoff(target, targetHost),
+    bookable: { ...bookablePayoff(target, competitors, targetHost, goal), facts: bookableFacts(target).slice(0, 4) },
+    visible: { ...visiblePayoff(target, competitors, targetHost), facts: visibleFacts(target).slice(0, 4) },
+    rank: { ...rankPayoff(scan, target, targetHost), facts: rankFacts(target).slice(0, 4) },
+    fix: { ...fixPayoff(target, targetHost), facts: fixFacts(target) },
   };
 }
 
@@ -66,7 +131,7 @@ function canFinish(entry: MarketEntry, goal: Goal): boolean {
   return j.outcome !== "blocked";
 }
 
-function bookablePayoff(target: MarketEntry | undefined, competitors: MarketEntry[], host: string, goal: Goal): Payoff {
+function bookablePayoff(target: MarketEntry | undefined, competitors: MarketEntry[], host: string, goal: Goal): Omit<Payoff, "facts"> {
   const verb = GOAL_VERB[goal];
   if (!target) {
     return { headline: `Add your own site to see if an agent can ${verb} you.`, tone: "unknown", detail: [] };
@@ -109,7 +174,7 @@ function isVisible(entry: MarketEntry): boolean {
   return !f.noindex && f.jsonLdBlocks > 0;
 }
 
-function visiblePayoff(target: MarketEntry | undefined, competitors: MarketEntry[], host: string): Payoff {
+function visiblePayoff(target: MarketEntry | undefined, competitors: MarketEntry[], host: string): Omit<Payoff, "facts"> {
   if (!target) return { headline: "Add your own site to see if AI search can read it.", tone: "unknown", detail: [] };
   const compVisible = competitors.filter(isVisible).length;
   const youVisible = isVisible(target);
@@ -134,7 +199,7 @@ function visiblePayoff(target: MarketEntry | undefined, competitors: MarketEntry
     : { headline: `No one in this market is readable by AI search yet.`, tone: "mixed", detail: ["An opening: be the one assistants can actually cite."] };
 }
 
-function rankPayoff(scan: MarketScan, target: MarketEntry | undefined, host: string): Payoff {
+function rankPayoff(scan: MarketScan, target: MarketEntry | undefined, host: string): Omit<Payoff, "facts"> {
   const sites = loaded(scan);
   if (!target || sites.length < 2) {
     return { headline: sites.length < 2 ? "Add competitors to see your rank." : "Add your own site to see your rank.", tone: "unknown", detail: [] };
@@ -159,7 +224,7 @@ function rankPayoff(scan: MarketScan, target: MarketEntry | undefined, host: str
   return { headline: `You rank #${pos} of ${sites.length} in your market.`, tone, detail };
 }
 
-function fixPayoff(target: MarketEntry | undefined, host: string): Payoff {
+function fixPayoff(target: MarketEntry | undefined, host: string): Omit<Payoff, "facts"> {
   if (!target) return { headline: "Add your own site to see the fixes.", tone: "unknown", detail: [] };
   const issues = target.audit.findings.length;
   if (issues === 0) {

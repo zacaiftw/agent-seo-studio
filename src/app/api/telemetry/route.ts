@@ -63,6 +63,11 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+export async function DELETE() {
+  hits.length = 0;
+  return NextResponse.json({ ok: true, total: 0 });
+}
+
 function p95(sorted: number[]): number {
   if (sorted.length === 0) return 0;
   const i = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);

@@ -572,16 +572,38 @@ function AgentAnalytics() {
 
   const total = data?.total ?? 0;
   const failed = data ? total - Math.round((data.successRate / 100) * total) : 0;
+
+  const clear = async () => {
+    try {
+      await fetch("/api/telemetry", { method: "DELETE" });
+      setData({ total: 0, successRate: 100, p95Ms: 0, byTool: [], byEngine: [], recent: [] });
+    } catch {
+      /* best-effort */
+    }
+  };
+
   return (
     <details className="mb-6 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.03] px-4 py-3" open>
-      <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-wider text-white/50">
+      <summary className="flex cursor-pointer list-none items-center text-xs font-semibold uppercase tracking-wider text-white/50">
         <span className="text-emerald-200/90">Agent usage — live</span>
         <span className="ml-2 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[11px] text-emerald-200/80">
           {total} agent call{total === 1 ? "" : "s"}
         </span>
         <span className="ml-2 font-normal normal-case tracking-normal text-white/40">
-          — the proof no static SEO tool can show
+          — tracks tools your agent calls, not your own clicks
         </span>
+        {total > 0 && (
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              clear();
+            }}
+            className="ml-auto rounded-md border border-white/15 px-2.5 py-1 text-[11px] font-medium normal-case tracking-normal text-white/60 transition hover:border-white/30 hover:text-white/90"
+            title="Reset the counter to zero — start fresh"
+          >
+            Clear
+          </button>
+        )}
       </summary>
 
       {total === 0 ? (
@@ -893,9 +915,19 @@ function OwnerReport({
                   ))}
                 </ul>
               )}
+              {payoff.facts.length > 0 && (
+                <dl className="mt-5 divide-y divide-white/10 border-t border-white/10">
+                  {payoff.facts.map((f, i) => (
+                    <div key={i} className="flex items-baseline justify-between gap-4 py-2.5">
+                      <dt className="text-[13px] text-white/50">{f.label}</dt>
+                      <dd className={`text-right text-sm font-medium ${factColor(f.state)}`}>{f.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
               {!report.comparable && (
                 <p className="mt-4 text-xs text-white/40">
-                  Add your own site plus at least one competitor for a full head-to-head.
+                  Add competitors below for a head-to-head — otherwise this is your site on its own.
                 </p>
               )}
             </div>
@@ -1238,4 +1270,7 @@ function scoreText(s: number) {
 }
 function sevDot(sev: string) {
   return sev === "high" ? "text-red-400" : sev === "medium" ? "text-amber-400" : "text-white/30";
+}
+function factColor(state: string) {
+  return state === "ok" ? "text-emerald-300" : state === "warn" ? "text-amber-300" : state === "bad" ? "text-red-300" : "text-white/80";
 }

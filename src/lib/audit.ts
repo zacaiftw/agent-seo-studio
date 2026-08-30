@@ -178,16 +178,38 @@ function collectTypes(node: unknown, out: Set<string>): void {
   }
 }
 
-/** Known task-completion signals in the HTML — what an agent could act on. */
-const AFFORDANCE_SIGNALS = [
+// Booking/commerce platform fingerprints — only real if they appear in a URL
+// the page links to or loads (href/src), never in prose. A payments company's
+// homepage mentions "checkout" in copy; that isn't a checkout an agent can use.
+const PLATFORM_SIGNALS = [
   "calendly", "acuity", "squarespace-scheduling", "booksy", "opentable", "resy", "vagaro", "mindbody",
-  "book now", "book online", "book appointment", "schedule", "reserve", "reservation", "request a quote",
-  "get a quote", "free quote", "add to cart", "add-to-cart", "checkout", "buy now", "shop now", "contact us",
+];
+// Action phrases — only count when they're the text of a link or button, or a
+// button value, i.e. an actual affordance the user (or an agent) can operate.
+const ACTION_PHRASES = [
+  "book now", "book online", "book appointment", "reserve", "request a quote",
+  "get a quote", "free quote", "add to cart", "checkout", "buy now", "shop now", "contact us",
 ];
 
 function extractAffordances(html: string): AuditFacts["affordances"] {
-  const lower = html.toLowerCase();
-  const signals = AFFORDANCE_SIGNALS.filter((s) => lower.includes(s));
+  const signals: string[] = [];
+
+  // Platform fingerprints: must sit inside an href/src attribute value.
+  const urlAttrs = (html.match(/(?:href|src)\s*=\s*["'][^"']*["']/gi) ?? []).join(" ").toLowerCase();
+  for (const p of PLATFORM_SIGNALS) if (urlAttrs.includes(p)) signals.push(p);
+
+  // Action phrases: must be the visible text of an <a>/<button>, or a submit
+  // button's value — not free-floating body copy.
+  const clickableText = [
+    ...(html.match(/<a\b[^>]*>([\s\S]*?)<\/a>/gi) ?? []),
+    ...(html.match(/<button\b[^>]*>([\s\S]*?)<\/button>/gi) ?? []),
+    ...(html.match(/<input[^>]*type=["'](?:submit|button)["'][^>]*value=["'][^"']*["']/gi) ?? []),
+  ]
+    .join(" ")
+    .replace(/<[^>]+>/g, " ")
+    .toLowerCase();
+  for (const a of ACTION_PHRASES) if (clickableText.includes(a)) signals.push(a);
+
   return {
     forms: (html.match(/<form\b/gi) ?? []).length,
     emailInputs: (html.match(/<input[^>]*type=["']email["']/gi) ?? []).length,
