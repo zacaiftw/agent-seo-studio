@@ -91,6 +91,7 @@ export function schemaTypeToKind(businessType: string | null): string | null {
  * markup at all. Returns the first mappable category found, or null.
  */
 const TEXT_KIND_HINTS: { match: RegExp; kind: string }[] = [
+  // Physical storefronts — OpenStreetMap can discover these locally.
   { match: /\b(hair ?salon|barber|barbershop|salon)\b/i, kind: "salon" },
   { match: /\b(day ?spa|spa|massage)\b/i, kind: "spa" },
   { match: /\b(dentist|dental)\b/i, kind: "dentist" },
@@ -98,6 +99,16 @@ const TEXT_KIND_HINTS: { match: RegExp; kind: string }[] = [
   { match: /\b(gym|fitness|crossfit|yoga studio|pilates)\b/i, kind: "gym" },
   { match: /\b(restaurant|cafe|café|bakery|bistro|diner|eatery)\b/i, kind: "restaurant" },
   { match: /\b(auto ?repair|mechanic|body shop|tire shop)\b/i, kind: "auto repair" },
+  // Digital / online-only businesses — OSM can't map these, so they rely on the
+  // curated fallback set below. Ordered specific → generic; first match wins.
+  // Patterns match the loose words that actually appear in hero/meta copy, not
+  // full phrases (a homepage says "SEO" and "marketing", rarely "seo agency").
+  { match: /\b(seo|search engine optimi[sz]ation|generative engine|geo readiness|ai search)\b/i, kind: "seo agency" },
+  { match: /\b(marketing|advertising|ad agency|growth|demand gen)\b/i, kind: "marketing agency" },
+  { match: /\b(law firm|attorney|lawyer|legal service|litigation)\b/i, kind: "law firm" },
+  { match: /\b(accounting|bookkeeping|\bcpa\b|tax prep|payroll)\b/i, kind: "accounting firm" },
+  { match: /\b(saas|software as a service|api platform|developer platform|dashboard|workflow)\b/i, kind: "saas" },
+  { match: /\b(e-?commerce|online store|shopify|dropship|storefront)\b/i, kind: "ecommerce" },
 ];
 
 export function guessKindFromText(...samples: (string | null | undefined)[]): string | null {
@@ -114,6 +125,7 @@ export function guessKindFromText(...samples: (string | null | undefined)[]): st
  * flaky external dependency. Not a directory; a reliability net.
  */
 const FALLBACK_COMPETITORS: Record<string, string[]> = {
+  // Physical storefronts (fallback when OSM is empty).
   restaurant: ["sweetgreen.com", "chipotle.com", "shakeshack.com"],
   salon: ["driphouse.com", "supercuts.com", "greatclips.com"],
   spa: ["massageenvy.com", "hand-stone.com", "woodhousespas.com"],
@@ -121,6 +133,15 @@ const FALLBACK_COMPETITORS: Record<string, string[]> = {
   clinic: ["onemedical.com", "carbonhealth.com", "zoomcare.com"],
   gym: ["planetfitness.com", "crunch.com", "equinox.com"],
   "auto repair": ["midas.com", "firestonecompleteautocare.com", "meineke.com"],
+  // Digital / online-only categories — OSM can't map these at all, so the
+  // curated set is the ONLY way they get a head-to-head. These are recognizable
+  // names in each space, not an endorsement or a real local-market list.
+  "seo agency": ["ahrefs.com", "semrush.com", "moz.com"],
+  "marketing agency": ["hubspot.com", "mailchimp.com", "klaviyo.com"],
+  "law firm": ["legalzoom.com", "rocketlawyer.com", "clio.com"],
+  "accounting firm": ["bench.co", "pilot.com", "gusto.com"],
+  saas: ["stripe.com", "notion.so", "linear.app"],
+  ecommerce: ["shopify.com", "bigcommerce.com", "squarespace.com"],
 };
 
 /** Well-known competitors for a category, or [] if we have none curated. */

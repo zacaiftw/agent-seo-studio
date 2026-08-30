@@ -90,15 +90,17 @@ export async function POST(req: NextRequest) {
       const city = targetAudit.facts.detected.city;
       const kind =
         schemaTypeToKind(targetAudit.facts.detected.businessType) ??
-        guessKindFromText(targetAudit.facts.title, targetAudit.facts.textSample);
+        guessKindFromText(targetAudit.facts.title, targetAudit.facts.metaDescription, targetAudit.facts.textSample);
       detected = { city, kind };
       if (city && kind) {
         const found = await scanMarket({ query: `${kind} in ${city}` });
         competitorEntries = found.ranked.filter((e) => hostKey(e.url) !== hostKey(targetEntry.url));
       }
-      // Live discovery came back empty (OpenStreetMap is free and can be busy or
-      // sparse). Fall back to a curated set for the category so common business
-      // types always get a head-to-head instead of dead-ending.
+      // Fall back to a curated set for the category. This covers two cases:
+      // (1) a physical business where live OpenStreetMap discovery came back
+      // empty (it's free and often busy/sparse), and (2) a digital business
+      // (SaaS, agency, law/accounting firm) that OSM can't map at all — for
+      // those the curated set is the ONLY way they get a head-to-head.
       if (competitorEntries.length === 0) {
         const curated = fallbackCompetitors(kind);
         if (curated.length) {
