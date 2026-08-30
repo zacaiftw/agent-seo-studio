@@ -23,6 +23,7 @@ async function callReport(target: string, competitors: string[], goal: Goal, que
     scan: MarketScan;
     detected?: { city: string | null; kind: string | null };
     needsMarket?: boolean;
+    usedFallback?: boolean;
   };
 }
 
@@ -87,6 +88,7 @@ export default function Home() {
   const [report, setReport] = useState<MarketReport | null>(null);
   const [reportBusy, setReportBusy] = useState(false);
   const [needsMarket, setNeedsMarket] = useState(false);
+  const [usedFallback, setUsedFallback] = useState(false);
   const [detectedCity, setDetectedCity] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const wsRef = useRef<WorkspaceEntry[]>([]);
@@ -242,9 +244,10 @@ export default function Home() {
   const runReport = async (target: string, competitors: string[], goal: Goal, query?: string) => {
     setReportBusy(true);
     try {
-      const { report, needsMarket, detected } = await callReport(target, competitors, goal, query);
+      const { report, needsMarket, detected, usedFallback } = await callReport(target, competitors, goal, query);
       setReport(report);
       setNeedsMarket(!!needsMarket);
+      setUsedFallback(!!usedFallback);
       setDetectedCity(detected?.city ?? null);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Report failed");
@@ -288,7 +291,7 @@ export default function Home() {
 
       <LiveToolsPanel tools={liveTools} ready={mcpReady} />
 
-      <OwnerReport report={report} busy={reportBusy} onRun={runReport} needsMarket={needsMarket} detectedCity={detectedCity} />
+      <OwnerReport report={report} busy={reportBusy} onRun={runReport} needsMarket={needsMarket} detectedCity={detectedCity} usedFallback={usedFallback} />
 
       <div className="mt-10 border-t border-white/10 pt-6">
         <button
@@ -740,12 +743,14 @@ function OwnerReport({
   onRun,
   needsMarket,
   detectedCity,
+  usedFallback,
 }: {
   report: MarketReport | null;
   busy: boolean;
   onRun: (target: string, competitors: string[], goal: Goal, query?: string) => void;
   needsMarket: boolean;
   detectedCity: string | null;
+  usedFallback: boolean;
 }) {
   const [site, setSite] = useState("");
   const [goal, setGoal] = useState<Goal>("book");
@@ -901,6 +906,14 @@ function OwnerReport({
               );
             })}
           </div>
+
+          {usedFallback && report.competitorCount > 0 && (
+            <p className="mb-4 text-xs text-white/40">
+              Compared against {report.competitorCount} well-known site{report.competitorCount > 1 ? "s" : ""} in your
+              category — no local directory data was available, so these are national benchmarks. Paste your real local
+              competitors below to swap them in.
+            </p>
+          )}
 
           {/* Hero payoff */}
           {payoff && (

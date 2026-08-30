@@ -3,7 +3,7 @@ import { auditUrl } from "@/lib/audit";
 import { scoreGeo, suggestFixes, projectScore } from "@/lib/score";
 import { generateSchema, generateMeta } from "@/lib/generate";
 import { scanMarket, analyzeGaps } from "@/lib/market";
-import { schemaTypeToKind } from "@/lib/discover";
+import { schemaTypeToKind, guessKindFromText, fallbackCompetitors } from "@/lib/discover";
 import { runJourney, type Goal } from "@/lib/journey";
 import { buildReport } from "@/lib/report";
 import type { MarketEntry } from "@/lib/market";
@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
     let competitorEntries: MarketEntry[] = [];
     let detected: { city: string | null; kind: string | null } | undefined;
     let needsMarket = false;
+    let usedFallback = false;
 
     if (suppliedCompetitors.length > 0) {
       const scan = await scanMarket({ urls: suppliedCompetitors });
@@ -82,16 +83,32 @@ export async function POST(req: NextRequest) {
       competitorEntries = found.ranked.filter((e) => hostKey(e.url) !== hostKey(targetEntry.url));
       if (competitorEntries.length === 0) needsMarket = true;
     } else {
-      // Auto-discover: pull city + business kind from the target's schema.
+      // Auto-discover competitors from the site alone. Pull the city from the
+      // site's schema; derive the business kind from schema @type, or fall back
+      // to sniffing the title + visible text so sites without schema.org markup
+      // (most small businesses) still get an automatic head-to-head.
       const city = targetAudit.facts.detected.city;
-      const kind = schemaTypeToKind(targetAudit.facts.detected.businessType);
+      const kind =
+        schemaTypeToKind(targetAudit.facts.detected.businessType) ??
+        guessKindFromText(targetAudit.facts.title, targetAudit.facts.textSample);
       detected = { city, kind };
       if (city && kind) {
         const found = await scanMarket({ query: `${kind} in ${city}` });
-        // Exclude the target itself from its own competitor set.
         competitorEntries = found.ranked.filter((e) => hostKey(e.url) !== hostKey(targetEntry.url));
       }
-      // Couldn't figure out the market from the site alone — tell the UI to ask.
+      // Live discovery came back empty (OpenStreetMap is free and can be busy or
+      // sparse). Fall back to a curated set for the category so common business
+      // types always get a head-to-head instead of dead-ending.
+      if (competitorEntries.length === 0) {
+        const curated = fallbackCompetitors(kind);
+        if (curated.length) {
+          const found = await scanMarket({ urls: curated });
+          competitorEntries = found.ranked.filter((e) => hostKey(e.url) !== hostKey(targetEntry.url));
+          usedFallback = competitorEntries.length > 0;
+        }
+      }
+      // Only ask the human when we still have nothing — an uncommon category with
+      // no curated set, or a business OpenStreetMap doesn't map (SaaS, agencies).
       if (competitorEntries.length === 0) needsMarket = true;
     }
 
@@ -101,7 +118,7 @@ export async function POST(req: NextRequest) {
     });
     const scan = { ranked };
     const report = buildReport(scan, targetEntry.url, goal);
-    return NextResponse.json({ scan, report, detected, needsMarket });
+    return NextResponse.json({ scan, report, detected, needsMarket, usedFallback });
   }
 
   const url = String(body.url ?? "").trim();

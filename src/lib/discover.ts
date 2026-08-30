@@ -84,6 +84,51 @@ export function schemaTypeToKind(businessType: string | null): string | null {
   return null; // a generic ProfessionalService/LocalBusiness isn't specific enough to search
 }
 
+/**
+ * Fallback kind detection when a site declares no business @type: sniff its
+ * title + visible text for a known storefront category. Lets auto-discovery
+ * still fire for the many small-business sites that don't publish schema.org
+ * markup at all. Returns the first mappable category found, or null.
+ */
+const TEXT_KIND_HINTS: { match: RegExp; kind: string }[] = [
+  { match: /\b(hair ?salon|barber|barbershop|salon)\b/i, kind: "salon" },
+  { match: /\b(day ?spa|spa|massage)\b/i, kind: "spa" },
+  { match: /\b(dentist|dental)\b/i, kind: "dentist" },
+  { match: /\b(clinic|physician|doctor|medical)\b/i, kind: "clinic" },
+  { match: /\b(gym|fitness|crossfit|yoga studio|pilates)\b/i, kind: "gym" },
+  { match: /\b(restaurant|cafe|café|bakery|bistro|diner|eatery)\b/i, kind: "restaurant" },
+  { match: /\b(auto ?repair|mechanic|body shop|tire shop)\b/i, kind: "auto repair" },
+];
+
+export function guessKindFromText(...samples: (string | null | undefined)[]): string | null {
+  const hay = samples.filter(Boolean).join(" ");
+  for (const h of TEXT_KIND_HINTS) if (h.match.test(hay)) return h.kind;
+  return null;
+}
+
+/**
+ * Curated fallback competitors per category, used ONLY when live OpenStreetMap
+ * discovery returns nothing (it's a free, keyless API and can be busy or sparse).
+ * These are real, well-known sites in each category — enough to always give a
+ * head-to-head for common business types so the report never dead-ends on a
+ * flaky external dependency. Not a directory; a reliability net.
+ */
+const FALLBACK_COMPETITORS: Record<string, string[]> = {
+  restaurant: ["sweetgreen.com", "chipotle.com", "shakeshack.com"],
+  salon: ["driphouse.com", "supercuts.com", "greatclips.com"],
+  spa: ["massageenvy.com", "hand-stone.com", "woodhousespas.com"],
+  dentist: ["aspendental.com", "westerndental.com", "greatexpressions.com"],
+  clinic: ["onemedical.com", "carbonhealth.com", "zoomcare.com"],
+  gym: ["planetfitness.com", "crunch.com", "equinox.com"],
+  "auto repair": ["midas.com", "firestonecompleteautocare.com", "meineke.com"],
+};
+
+/** Well-known competitors for a category, or [] if we have none curated. */
+export function fallbackCompetitors(kind: string | null): string[] {
+  if (!kind) return [];
+  return FALLBACK_COMPETITORS[kind] ?? [];
+}
+
 /** Discover local businesses with websites for a query. Returns [] rather than throwing. */
 export async function discoverMarket(query: string, max = 25): Promise<DiscoverResult> {
   const { kind, place } = parseQuery(query);
