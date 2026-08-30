@@ -545,7 +545,7 @@ function AgentAnalytics() {
             Every number below came from an agent calling a tool — not a human clicking.
           </p>
           <div className="grid grid-cols-3 gap-3">
-            <Stat label="agent actions driven" value={String(total)} />
+            <Stat label="agent actions" value={String(total)} />
             <Stat
               label={failed > 0 ? `success rate · ${failed} failed` : "success rate"}
               value={`${data!.successRate}%`}
