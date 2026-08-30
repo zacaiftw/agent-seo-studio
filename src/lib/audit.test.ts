@@ -8,7 +8,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveFindings, type AuditFacts, type AuditResult } from "./audit";
+import { deriveFindings, WEBMCP_RE, type AuditFacts, type AuditResult } from "./audit";
 import { scoreGeo, suggestFixes } from "./score";
 
 function facts(over: Partial<AuditFacts> = {}): AuditFacts {
@@ -133,6 +133,21 @@ test("webmcp ladder: a declarative-form site gets partial credit, not the full '
     scoreGeo(r).readiness > scoreGeo(noTools).readiness,
     "a declarative-form site should score higher than one with no agent tools"
   );
+});
+
+test("webmcp detection: a real registerTool call matches, feature-detects and toolbars do not", () => {
+  // Real WebMCP declarations — must match.
+  assert.ok(WEBMCP_RE.test('document.modelContext.registerTool({ name: "x", execute })'), "real registerTool call");
+  assert.ok(WEBMCP_RE.test('mc?.registerTool({\n  name: "audit",\n})'), "optional-chained registerTool call");
+  assert.ok(WEBMCP_RE.test("useWebMCPTool(() => {})"), "the useWebMCPTool hook");
+
+  // The exact minified feature-detect that made a Shopify site false-positive as
+  // "declares agent tools" — must NOT match. Regression for that bug.
+  assert.ok(!WEBMCP_RE.test("u(){return typeof(o.modelContext||r.navigator?.modelContext)}"), "feature-detect is not a declaration");
+  // A generic toolbar/plugin registerTool with a string arg — not WebMCP.
+  assert.ok(!WEBMCP_RE.test('Editor.registerTool("bold", handler)'), "string-arg registerTool is not WebMCP");
+  // The bare API word alone — not a declaration.
+  assert.ok(!WEBMCP_RE.test("// see the modelContext proposal"), "a bare mention is not a declaration");
 });
 
 test("readiness is clamped to 0–100 even when many defects stack", () => {

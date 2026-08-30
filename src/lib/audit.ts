@@ -323,8 +323,19 @@ async function safeFetch(url: string, signal: AbortSignal, hop = 0): Promise<Res
  * and greps for the modelContext/registerTool signature. Bounded so a heavy site
  * can't turn one audit into dozens of fetches.
  */
-/** The WebMCP JS API signature: document.modelContext.registerTool and its kin. */
-const WEBMCP_RE = /modelContext|registerTool|useWebMCPTool|navigator\.modelContext/i;
+/**
+ * The WebMCP JS signature — must be an actual tool *registration*, not a bare
+ * mention of the API name. `registerTool` alone is too generic (Shopify, jQuery
+ * plugins, and editor toolbars all define functions by that name), and
+ * `x.modelContext || y.modelContext` is feature-detection, not a declaration.
+ * We require the registration CALL: `.registerTool(` reached through a
+ * modelContext, or the `useWebMCPTool(` hook. That's a site declaring a tool,
+ * not code probing whether the API exists.
+ */
+export const WEBMCP_RE = /modelContext\s*[?.)\]]*\s*\.?\s*registerTool\s*\(|\.registerTool\s*\(\s*\{[^}]*\bname\b|useWebMCPTool\s*\(/i;
+/** A weaker signal: the API name appears, but not as a registration call — e.g.
+ * a polyfill or a feature-detect. Worth noting as "likely", never "confirmed". */
+const WEBMCP_MENTION_RE = /document\.modelContext|navigator\.modelContext|window\.modelContext/i;
 /** The zero-JS declarative on-ramp: a <form toolname="…" tooldescription="…">.
  * This is the cheapest way a site declares an action, and the one Akshay's
  * article tells owners to start with — so we detect and reward it explicitly. */
@@ -343,23 +354,31 @@ export type WebMcpSignal = AuditFacts["webmcp"];
 async function detectWebMcp(html: string, pageUrl: string, signal: AbortSignal): Promise<WebMcpSignal> {
   const signals: string[] = [];
 
-  // Rung 1 (top): a declared WebMCP tool, visible in the served HTML.
+  // Rung 1 (top): an actual registerTool() call in the served HTML — a real,
+  // confirmed tool declaration, not just the API name appearing somewhere.
   if (WEBMCP_RE.test(html)) {
-    return { rung: "webmcp", confidence: "confirmed", signals: ["document.modelContext in HTML"], method: "static" };
+    return { rung: "webmcp", confidence: "confirmed", signals: ["registerTool() call in HTML"], method: "static" };
   }
   // Rung 2: the zero-JS declarative form on-ramp.
   if (TOOL_FORM_RE.test(html)) {
     signals.push("<form toolname=…>");
   }
 
-  // Rung 1, deferred: the reference may live in a linked bundle that registers
-  // tools at runtime. Finding it there is a strong signal but not a guarantee.
+  // Rung 1, deferred: a registerTool() call may live in a linked bundle that
+  // runs at runtime. Finding it there is a strong signal but not a guarantee.
   if (await scriptsReferenceWebMCP(html, pageUrl, signal)) {
-    return { rung: "webmcp", confidence: "likely", signals: ["modelContext in linked script"], method: "static" };
+    return { rung: "webmcp", confidence: "likely", signals: ["registerTool() in linked script"], method: "static" };
   }
 
   if (signals.length) {
     return { rung: "declarative-form", confidence: "confirmed", signals, method: "static" };
+  }
+
+  // A bare `document.modelContext` mention (feature-detect or polyfill) is not a
+  // declaration — but it does hint the site is WebMCP-aware. Report it as a
+  // "likely" none-rung note rather than falsely claiming a declared tool.
+  if (WEBMCP_MENTION_RE.test(html)) {
+    return { rung: "none", confidence: "likely", signals: ["modelContext referenced but no registerTool() call"], method: "static" };
   }
   return { rung: "none", confidence: "none", signals: [], method: "static" };
 }
