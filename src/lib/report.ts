@@ -72,12 +72,20 @@ function visibleFacts(e: MarketEntry | undefined): FactRow[] {
   if (!e) return NONE;
   const f = e.audit.facts;
   const types = f.jsonLdTypes.filter((t) => t !== "(unparseable)");
+  // Defensive: fixtures and older cached facts may omit the newer fields.
+  const crawl = f.crawlability ?? { robotsTxt: null, sitemapXml: null };
+  const stack = f.techStack ?? [];
+  const crawlVal = (b: boolean | null) => (b === null ? "unknown" : b ? "present" : "missing");
+  const crawlState = (b: boolean | null): FactRow["state"] => (b === null ? "neutral" : b ? "ok" : "warn");
   return [
     { label: "Structured data (JSON-LD)", value: f.jsonLdBlocks ? `${f.jsonLdBlocks} block${f.jsonLdBlocks > 1 ? "s" : ""}: ${types.join(", ") || "unnamed"}` : "none", state: f.jsonLdBlocks ? "ok" : "bad" },
     { label: "Meta description", value: f.metaDescription ? `present (${f.metaDescription.length} chars)` : "missing", state: f.metaDescription ? "ok" : "bad" },
     { label: "Title tag", value: f.title ? `"${f.title.slice(0, 48)}${f.title.length > 48 ? "…" : ""}"` : "missing", state: f.title ? "ok" : "bad" },
     { label: "Social / OG image", value: f.ogTags.image ? "present" : "missing", state: f.ogTags.image ? "ok" : "warn" },
     { label: "Indexable by crawlers", value: f.noindex ? "BLOCKED (noindex)" : "yes", state: f.noindex ? "bad" : "ok" },
+    { label: "robots.txt", value: crawlVal(crawl.robotsTxt), state: crawlState(crawl.robotsTxt) },
+    { label: "sitemap.xml", value: crawlVal(crawl.sitemapXml), state: crawlState(crawl.sitemapXml) },
+    ...(stack.length ? [{ label: "Built with", value: stack.join(", "), state: "neutral" as const }] : []),
   ];
 }
 
@@ -116,7 +124,7 @@ export function buildReport(scan: MarketScan, targetUrl: string, goal: Goal = "b
     competitorCount: competitors.length,
     comparable,
     bookable: { ...bookablePayoff(target, competitors, targetHost, goal), facts: bookableFacts(target).slice(0, 4) },
-    visible: { ...visiblePayoff(target, competitors, targetHost), facts: visibleFacts(target).slice(0, 4) },
+    visible: { ...visiblePayoff(target, competitors, targetHost), facts: visibleFacts(target).slice(0, 8) },
     rank: { ...rankPayoff(scan, target, targetHost), facts: rankFacts(target).slice(0, 4) },
     fix: { ...fixPayoff(target, targetHost), facts: fixFacts(target) },
   };

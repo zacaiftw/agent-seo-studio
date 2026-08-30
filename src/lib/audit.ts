@@ -69,6 +69,10 @@ export interface AuditFacts {
   };
   /** True when the page asks crawlers not to index it (robots meta or X-Robots-Tag). A hard block on being found at all. */
   noindex: boolean;
+  /** Best-effort tech-stack fingerprint from HTML + response headers (e.g. "Shopify", "WordPress", "Next.js", "Cloudflare"). Empty when nothing recognizable. */
+  techStack: string[];
+  /** Whether /robots.txt and /sitemap.xml exist — the two files crawlers and AI engines look for first. null = we couldn't check (fetch failed). */
+  crawlability: { robotsTxt: boolean | null; sitemapXml: boolean | null };
   /** True when the raw HTML is near-empty but ships a big JS bundle — a client-rendered SPA. We flag rather than falsely report "no content". */
   likelyClientRendered: boolean;
   /** First ~800 chars of visible text, used only as grounding context for fix generation. Never shown as a finding. */
@@ -190,6 +194,64 @@ const ACTION_PHRASES = [
   "book now", "book online", "book appointment", "reserve", "request a quote",
   "get a quote", "free quote", "add to cart", "checkout", "buy now", "shop now", "contact us",
 ];
+
+/** Fingerprint the tech stack from the served HTML + response headers. Cheap,
+ * no extra fetch — just pattern-matches the tells each platform leaves behind. */
+function detectTechStack(html: string, headers: Headers): string[] {
+  const found = new Set<string>();
+  const lower = html.toLowerCase();
+  const server = (headers.get("server") ?? "").toLowerCase();
+  const powered = (headers.get("x-powered-by") ?? "").toLowerCase();
+  const generator = (attr(html, "meta", "name", "generator") ?? "").toLowerCase();
+
+  // Platforms / CMS
+  if (lower.includes("cdn.shopify.com") || lower.includes("shopify")) found.add("Shopify");
+  if (generator.includes("wordpress") || lower.includes("/wp-content/") || lower.includes("/wp-includes/")) found.add("WordPress");
+  if (generator.includes("wix") || lower.includes("wix.com")) found.add("Wix");
+  if (generator.includes("squarespace") || lower.includes("squarespace")) found.add("Squarespace");
+  if (lower.includes("webflow")) found.add("Webflow");
+  if (generator.includes("drupal")) found.add("Drupal");
+  // Frameworks
+  if (lower.includes("/_next/") || lower.includes("__next_data__")) found.add("Next.js");
+  if (lower.includes("/_nuxt/")) found.add("Nuxt");
+  if (lower.includes("data-reactroot") || lower.includes("react")) found.add("React");
+  if (lower.includes("gatsby")) found.add("Gatsby");
+  // Infra / CDN
+  if (headers.get("cf-ray") || server.includes("cloudflare")) found.add("Cloudflare");
+  if (server.includes("vercel") || headers.get("x-vercel-id")) found.add("Vercel");
+  if (powered.includes("express")) found.add("Express");
+  // Analytics
+  if (lower.includes("googletagmanager.com") || lower.includes("gtag(")) found.add("Google Analytics");
+
+  return [...found];
+}
+
+/** Check whether /robots.txt and /sitemap.xml exist. Two bounded GETs off the
+ * origin; never fatal — a failure returns null so the report can say "unknown"
+ * rather than falsely claim absence. */
+async function checkCrawlability(finalUrl: string, signal: AbortSignal): Promise<AuditFacts["crawlability"]> {
+  const origin = (() => {
+    try { return new URL(finalUrl).origin; } catch { return null; }
+  })();
+  if (!origin) return { robotsTxt: null, sitemapXml: null };
+
+  const probe = async (path: string): Promise<boolean | null> => {
+    try {
+      const res = await fetch(origin + path, { headers: { "User-Agent": UA }, redirect: "follow", signal });
+      // 200 with non-empty body = present. Many hosts 200 a soft-404 HTML page for
+      // a missing file, so require the content-type to look right too.
+      if (!res.ok) return false;
+      const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+      if (path.endsWith(".xml")) return ct.includes("xml") || ct.includes("text");
+      return true;
+    } catch {
+      return null;
+    }
+  };
+
+  const [robotsTxt, sitemapXml] = await Promise.all([probe("/robots.txt"), probe("/sitemap.xml")]);
+  return { robotsTxt, sitemapXml };
+}
 
 function extractAffordances(html: string): AuditFacts["affordances"] {
   const signals: string[] = [];
@@ -358,6 +420,8 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     detected: { city: null, region: null, businessType: null },
     affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
     noindex: false,
+    techStack: [],
+    crawlability: { robotsTxt: null, sitemapXml: null },
     likelyClientRendered: false,
     textSample: "",
   };
@@ -405,6 +469,12 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
     const agentReady = webmcp.rung !== "none";
 
     const affordances = extractAffordances(html);
+    const techStack = detectTechStack(html, res.headers);
+    // Crawlability probes share the same 12s budget; if they time out we report
+    // null (unknown), never a false "missing".
+    const crawlability = await checkCrawlability(res.url || url, controller.signal).catch(
+      () => ({ robotsTxt: null, sitemapXml: null } as AuditFacts["crawlability"])
+    );
 
     facts = {
       ...facts,
@@ -434,6 +504,8 @@ export async function auditUrl(raw: string): Promise<AuditResult> {
       detected: jsonLd.detected,
       affordances,
       noindex,
+      techStack,
+      crawlability,
     };
   } catch (e) {
     facts.error =
