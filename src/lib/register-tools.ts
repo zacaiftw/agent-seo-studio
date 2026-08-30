@@ -18,6 +18,33 @@ function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
 }
 
+/**
+ * Record one tool call for the live agent-usage dashboard. Fire-and-forget: the
+ * telemetry POST must never block the tool result or surface an error to the
+ * agent, so we swallow everything. No-op outside the browser (SSR/tests). This
+ * is the WebMCP-exclusive metric — named-action call volume by engine — that a
+ * static SEO tool can't produce.
+ */
+function recordCall(tool: string, ok: boolean, latencyMs: number): void {
+  if (typeof fetch !== "function" || typeof navigator === "undefined") return;
+  const ua = navigator.userAgent.toLowerCase();
+  const engine = ua.includes("chatgpt") || ua.includes("openai")
+    ? "ChatGPT"
+    : ua.includes("perplexity")
+      ? "Perplexity"
+      : ua.includes("claude") || ua.includes("anthropic")
+        ? "Claude"
+        : ua.includes("gemini")
+          ? "Gemini"
+          : "";
+  void fetch("/api/telemetry", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tool, ok, latencyMs, engine }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 function summarize(e: WorkspaceEntry): string {
   const top = e.audit.findings.slice(0, 3).map((f) => `• ${f.line}`).join("\n");
   return [
@@ -91,9 +118,13 @@ export function registerStudioTools(mc: ModelContext, bridge: StudioBridge): Stu
     // this wrapper is the backstop for an unexpected throw (e.g. our own API
     // route failing) so nothing escapes execute() as a rejection.
     const safeExecute: typeof tool.execute = async (input) => {
+      const started = Date.now();
       try {
-        return await tool.execute(input);
+        const result = await tool.execute(input);
+        recordCall(tool.name, true, Date.now() - started);
+        return result;
       } catch (err) {
+        recordCall(tool.name, false, Date.now() - started);
         const msg = err instanceof Error ? err.message : String(err);
         return text(`${tool.name} could not complete: ${msg}. Check the input and try again.`);
       }

@@ -282,6 +282,8 @@ export default function Home() {
         </div>
       )}
 
+      <AgentAnalytics />
+
       <LiveToolsPanel tools={liveTools} ready={mcpReady} />
 
       <OwnerReport report={report} busy={reportBusy} onRun={runReport} needsMarket={needsMarket} detectedCity={detectedCity} />
@@ -439,7 +441,7 @@ function LiveToolsPanel({ tools, ready }: { tools: string[]; ready: boolean }) {
   const liveSet = new Set(tools);
   const liveCount = ALL_STUDIO_TOOLS.filter((t) => liveSet.has(t)).length;
   return (
-    <details className="mb-6 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3" open>
+    <details className="mb-6 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3">
       <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-wider text-white/50">
         <span className="text-white/70">Agent tools live on this page</span>
         <span className="ml-2 rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/60">
@@ -476,6 +478,135 @@ function LiveToolsPanel({ tools, ready }: { tools: string[]; ready: boolean }) {
         </p>
       )}
     </details>
+  );
+}
+
+interface Telemetry {
+  total: number;
+  successRate: number;
+  p95Ms: number;
+  byTool: { name: string; count: number }[];
+  byEngine: { name: string; count: number }[];
+  recent: { tool: string; ok: boolean; engine: string; at: number }[];
+}
+
+/**
+ * Live agent-usage dashboard — the proof that agents are actually calling the
+ * tools, not just that the tools exist. Polls /api/telemetry every 4s; every
+ * WebMCP tool call moves these counters. This is the WebMCP-exclusive metric a
+ * static SEO tool can't show: named-action call volume, success rate, latency,
+ * and which AI engine drove the traffic.
+ */
+function AgentAnalytics() {
+  const [data, setData] = useState<Telemetry | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/telemetry");
+        if (!res.ok) return;
+        const json = (await res.json()) as Telemetry;
+        if (alive) setData(json);
+      } catch {
+        /* dashboard is best-effort; ignore fetch errors */
+      }
+    };
+    load();
+    const id = setInterval(load, 4000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  const total = data?.total ?? 0;
+  const failed = data ? total - Math.round((data.successRate / 100) * total) : 0;
+  return (
+    <details className="mb-6 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.03] px-4 py-3" open>
+      <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-wider text-white/50">
+        <span className="text-emerald-200/90">Agent usage — live</span>
+        <span className="ml-2 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[11px] text-emerald-200/80">
+          {total} agent call{total === 1 ? "" : "s"}
+        </span>
+        <span className="ml-2 font-normal normal-case tracking-normal text-white/40">
+          — the proof no static SEO tool can show
+        </span>
+      </summary>
+
+      {total === 0 ? (
+        <p className="mt-3 text-[11px] text-white/40">
+          No agent tool calls yet. When an agent (or the forms above) calls a tool, its call lands here in real time —
+          count, success rate, latency, and which AI engine drove it.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <p className="text-[11px] text-white/50">
+            Every number below came from an agent calling a tool — not a human clicking.
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            <Stat label="agent actions driven" value={String(total)} />
+            <Stat
+              label={failed > 0 ? `success rate · ${failed} failed` : "success rate"}
+              value={`${data!.successRate}%`}
+              tone={data!.successRate >= 90 ? "good" : "mixed"}
+            />
+            <Stat label="P95 latency" value={`${data!.p95Ms}ms`} />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <BreakdownBars title="By tool" rows={data!.byTool} total={total} />
+            <BreakdownBars title="Which AI is sending you traffic" rows={data!.byEngine} total={total} accent />
+          </div>
+
+          {data!.recent.length > 0 && (
+            <div>
+              <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40">Recent calls</h4>
+              <ul className="space-y-0.5 font-mono text-[11px]">
+                {data!.recent.map((r, i) => (
+                  <li key={i} className="flex items-center gap-2 text-white/60">
+                    <span className={r.ok ? "text-emerald-400" : "text-red-400"}>{r.ok ? "●" : "✕"}</span>
+                    <span className="text-white/80">{r.tool}</span>
+                    <span className="text-white/30">·</span>
+                    <span className="text-white/40">{r.engine}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </details>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "mixed" }) {
+  const color = tone === "good" ? "text-emerald-300" : tone === "mixed" ? "text-amber-300" : "text-white";
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+      <div className={`text-2xl font-semibold tabular-nums ${color}`}>{value}</div>
+      <div className="mt-0.5 text-[10px] uppercase tracking-wider text-white/40">{label}</div>
+    </div>
+  );
+}
+
+function BreakdownBars({ title, rows, total, accent }: { title: string; rows: { name: string; count: number }[]; total: number; accent?: boolean }) {
+  const bar = accent ? "bg-emerald-400/70" : "bg-white/40";
+  return (
+    <div>
+      <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40">{title}</h4>
+      <ul className="space-y-1">
+        {rows.slice(0, 6).map((r) => (
+          <li key={r.name} className="flex items-center gap-2 text-[11px]">
+            <span className="w-28 shrink-0 truncate font-mono text-white/70">{r.name}</span>
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
+              <div className={`h-full ${bar}`} style={{ width: `${(r.count / total) * 100}%` }} />
+            </div>
+            <span className="w-6 text-right tabular-nums text-white/50">{r.count}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
