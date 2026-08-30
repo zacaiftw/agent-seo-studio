@@ -282,6 +282,8 @@ export default function Home() {
         </div>
       )}
 
+      <HowToStrip ready={mcpReady} />
+
       <AgentAnalytics />
 
       <LiveToolsPanel tools={liveTools} ready={mcpReady} />
@@ -478,6 +480,54 @@ function LiveToolsPanel({ tools, ready }: { tools: string[]; ready: boolean }) {
         </p>
       )}
     </details>
+  );
+}
+
+/**
+ * The first thing a cold visitor reads: what to do, in order. Three big
+ * numbered steps so a human never has to guess where to start. The middle step
+ * adapts to whether an agent can drive this browser (WebMCP on) or the human
+ * drives by hand.
+ */
+function HowToStrip({ ready }: { ready: boolean }) {
+  const steps = [
+    {
+      title: "Enter your website",
+      body: "Type your site into “Check my site” below and pick what a customer should do — book, buy, quote, or contact.",
+    },
+    ready
+      ? {
+          title: "Or let your agent drive",
+          body: "Ask your AI agent: “Audit my site and two competitors, rank us for AI-search readiness.” It calls the tools for you — no clicking.",
+        }
+      : {
+          title: "Read your four answers",
+          body: "Can an agent book you? Are you visible to AI search? Your rank, and how to fix it — one plain answer per tab.",
+        },
+    {
+      title: "Watch the proof move",
+      body: "Every tool call lands in the green “Agent usage” panel in real time — the metric no static SEO tool can show.",
+    },
+  ];
+  return (
+    <section className="mb-6 rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-white/50">
+        How to use this — 3 steps
+      </h2>
+      <ol className="grid gap-4 sm:grid-cols-3">
+        {steps.map((s, i) => (
+          <li key={i} className="flex gap-3">
+            <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-400/10 text-base font-bold text-emerald-300 tabular-nums">
+              {i + 1}
+            </span>
+            <div>
+              <div className="text-[15px] font-semibold leading-snug">{s.title}</div>
+              <p className="mt-1 text-[13px] leading-relaxed text-white/55">{s.body}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
