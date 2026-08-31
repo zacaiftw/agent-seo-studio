@@ -803,33 +803,27 @@ function OwnerReport({
             {busy ? "Checking…" : "Check my site"}
           </button>
         </div>
-        <label className="flex flex-wrap items-center gap-2 text-sm text-white/60">
-          What should a customer be able to do on your site?
+        <label className="flex flex-wrap items-center gap-1.5 text-xs text-white/45">
+          Customers come here to
           <select
             value={goal}
             onChange={(e) => setGoal(e.target.value as Goal)}
             aria-label="What customers do on your site"
-            className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-white/30"
+            className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-xs text-white outline-none focus:border-white/30"
           >
-            <option value="book" className="bg-slate-900">Book an appointment</option>
-            <option value="buy" className="bg-slate-900">Buy something</option>
-            <option value="quote" className="bg-slate-900">Get a quote</option>
-            <option value="contact" className="bg-slate-900">Contact the business</option>
+            <option value="book" className="bg-slate-900">book an appointment</option>
+            <option value="buy" className="bg-slate-900">buy something</option>
+            <option value="quote" className="bg-slate-900">get a quote</option>
+            <option value="contact" className="bg-slate-900">contact the business</option>
           </select>
+          <span className="text-white/30">— so we check that path for agents.</span>
         </label>
-        <input
-          value={urls}
-          onChange={(e) => setUrls(e.target.value)}
-          placeholder="Competitors (optional) — paste their sites to compare head-to-head"
-          aria-label="Competitor sites"
-          className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm outline-none focus:border-white/25"
-        />
       </form>
 
       {!report && !busy && (
         <p className="mt-4 text-center text-xs text-white/40">
-          Enter your site and get your report. Add competitors for a head-to-head, or leave it blank — you can compare
-          later. Using an agent? It can supply competitors it already knows.
+          Enter your site and get your report. We&rsquo;ll find competitors for you automatically — swap in your real
+          ones anytime. Using an agent? It can supply competitors it already knows.
         </p>
       )}
 
