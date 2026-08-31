@@ -922,6 +922,27 @@ function OwnerReport({
                   ))}
                 </ul>
               )}
+              {payoff.leaderboard && payoff.leaderboard.length > 1 && (
+                <ol className="mt-5 space-y-1.5 border-t border-white/10 pt-4">
+                  {payoff.leaderboard.map((row, i) => (
+                    <li
+                      key={i}
+                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${
+                        row.you ? "bg-white/10 font-medium" : ""
+                      }`}
+                    >
+                      <span className="w-5 text-right tabular-nums text-white/40">{i + 1}</span>
+                      <span className="flex-1 truncate">
+                        {row.host}
+                        {row.you && <span className="ml-2 text-xs text-emerald-300">you</span>}
+                      </span>
+                      <span className={`tabular-nums ${row.error ? "text-red-400/60" : scoreText(row.score)}`}>
+                        {row.error ? "—" : `${row.score}`}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
               {payoff.facts.length > 0 && (
                 <dl className="mt-5 divide-y divide-white/10 border-t border-white/10">
                   {payoff.facts.map((f, i) => (

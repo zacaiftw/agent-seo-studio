@@ -19,6 +19,26 @@ function dedupeByHost(entries: MarketEntry[]): MarketEntry[] {
   });
 }
 
+// Hosts that OpenStreetMap surfaces but that aren't a business's own site —
+// social pages, directories, aggregators, and chain store-locators. Including
+// them makes the leaderboard noisy and unfair (you're not competing with a
+// Facebook page). Dropped from the competitor set.
+const JUNK_HOSTS = [
+  "facebook.com", "instagram.com", "yelp.com", "tripadvisor.com", "city-data.com",
+  "foursquare.com", "mapquest.com", "google.com", "spectrum.net", "slicelife.com",
+  "doordash.com", "ubereats.com", "grubhub.com", "opentable.com", "wikipedia.org",
+];
+function isJunkCompetitor(url: string): boolean {
+  const h = hostKey(url);
+  if (JUNK_HOSTS.some((j) => h === j || h.endsWith("." + j))) return true;
+  // Chain store-locator pages (…/store-locator/…, /locations/…) aren't a local rival's homepage.
+  return /\/store-locator\/|\/locations?\//i.test(url);
+}
+
+/** How many competitors to keep in the report leaderboard. Enough for a real
+ * head-to-head, few enough that the list stays clean and consistent. */
+const MAX_COMPETITORS = 6;
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // Market scans fan out to many sites; give the function room.
@@ -109,6 +129,12 @@ export async function POST(req: NextRequest) {
           usedFallback = competitorEntries.length > 0;
         }
       }
+      // Drop directory/social/chain-locator noise OSM surfaces, keep the best few.
+      competitorEntries = competitorEntries
+        .filter((e) => !isJunkCompetitor(e.url))
+        .sort((a, b) => (a.audit.facts.error ? 1 : 0) - (b.audit.facts.error ? 1 : 0) || b.score.readiness - a.score.readiness)
+        .slice(0, MAX_COMPETITORS);
+
       // Only ask the human when we still have nothing — an uncommon category with
       // no curated set, or a business OpenStreetMap doesn't map (SaaS, agencies).
       if (competitorEntries.length === 0) needsMarket = true;

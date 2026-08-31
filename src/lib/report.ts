@@ -32,6 +32,16 @@ export interface Payoff {
   detail: string[];
   /** Measured facts for this dimension — the data grid under the headline. */
   facts: FactRow[];
+  /** Ranked head-to-head list, present only on the rank payoff. */
+  leaderboard?: LeaderRow[];
+}
+
+/** One row of the rank-tab leaderboard: a site, its score, and whether it's you. */
+export interface LeaderRow {
+  host: string;
+  score: number;
+  you: boolean;
+  error: boolean;
 }
 
 export interface MarketReport {
@@ -229,7 +239,15 @@ function rankPayoff(scan: MarketScan, target: MarketEntry | undefined, host: str
     detail.push(`You're the market leader at ${you}/100. Hold it.`);
   }
 
-  return { headline: `You rank #${pos} of ${sites.length} in your market.`, tone, detail };
+  // The visible head-to-head: you + the top competitors, ranked, capped at 6.
+  const leaderboard: LeaderRow[] = sites.slice(0, 6).map((e) => ({
+    host: prettyHost(e.url),
+    score: e.score.readiness,
+    you: sameHost(e.url, host),
+    error: !!e.audit.facts.error,
+  }));
+
+  return { headline: `You rank #${pos} of ${sites.length} in your market.`, tone, detail, leaderboard };
 }
 
 function fixPayoff(target: MarketEntry | undefined, host: string): Omit<Payoff, "facts"> {
