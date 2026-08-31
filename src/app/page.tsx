@@ -298,7 +298,7 @@ export default function Home() {
           onClick={() => setShowAdvanced((v) => !v)}
           className="mb-4 text-xs font-medium uppercase tracking-wider text-white/40 hover:text-white/60"
         >
-          {showAdvanced ? "▾ Advanced tools" : "▸ Advanced tools (audit, market scan, mystery shopper, generate)"}
+          {showAdvanced ? "▾ Generate ready-to-ship fixes" : "▸ Generate ready-to-ship fixes (agent writes your JSON-LD + meta)"}
         </button>
       </div>
 
@@ -337,35 +337,11 @@ export default function Home() {
         </button>
       </form>
 
-      <MarketScanBar
-        scanning={scanning}
-        onScan={async (input) => {
-          setScanning(true);
-          try {
-            // Looks like a list of domains? Scan those directly (reliable, no discovery).
-            const urls = input.split(/[,\s]+/).filter((s) => /\.[a-z]{2,}/i.test(s));
-            if (urls.length >= 2) await runScan({ urls });
-            else await runScan({ query: input });
-          } catch (err) {
-            alert(err instanceof Error ? err.message : "Scan failed");
-          } finally {
-            setScanning(false);
-          }
-        }}
-      />
-
-      {market && <MarketLeaderboard market={market} />}
-
-      <MysteryShopperBar
-        onCheck={async (url, goal) => {
-          try {
-            await runJourneyCheck(url, goal);
-          } catch (err) {
-            alert(err instanceof Error ? err.message : "Journey check failed");
-          }
-        }}
-      />
-      {journey && <JourneyPanel report={journey} />}
+      {/* Market scan and mystery-shopper controls were removed from the UI: the
+          main report now auto-runs competitors (the leaderboard in the Rank tab)
+          and the "Can an agent book you?" tab already runs the journey check.
+          The one advanced action worth keeping is generating ready-to-ship
+          fixes, which lives on the workspace Detail below. */}
 
       <div className="grid gap-6 md:grid-cols-[280px_1fr]">
         <aside>
