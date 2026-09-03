@@ -3,6 +3,12 @@
 **Project:** Agent SEO Studio
 **Live URL:** https://agent-seo-studio.vercel.app
 **Repo:** https://github.com/zacaiftw/agent-seo-studio (MIT)
+**Video:** _(paste YouTube link here before submitting)_
+
+**Built entirely during the Submission Period.** The first commit is Aug 25, 2026
+(the period start) — the whole project, all 13 WebMCP tools, the report UI, and the
+live agent-usage dashboard were created within the window. Nothing here predates
+Aug 25; the full git history is public in the repo.
 
 ---
 

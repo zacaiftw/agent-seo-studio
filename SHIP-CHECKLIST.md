@@ -1,5 +1,21 @@
 # Ship Checklist — final 2 days
 
+> # 🧊 FREEZE AT 1:00 PM PT, THURSDAY SEP 3
+> **Once the Submission Period ends, NOTHING can change** — not the repo, not the
+> video, not the live site. Official rule: *"you may not make any changes or
+> alterations to your Submission,"* and the project *"must function as depicted in
+> the video"* through the end of judging (**Sep 21, 5:00 PM PT**).
+>
+> Concretely, after the deadline:
+> - **Do NOT** `git push`, redeploy prod, `vercel alias set`, or re-upload the video.
+> - **Do NOT** take the site offline or make the repo private.
+> - **Do NOT** let any agent (including me) touch this repo or prod. If you ask me
+>   to "just fix one thing" after 1 PM PT Thursday, the answer is **no** — remind me.
+> - Keep prod live, public, and on the exact deployment the video shows.
+>
+> **Submit ~3 hours early** (buffer for YouTube processing + Devpost). Confirm the
+> project is tagged **Submitted** (green), not a draft, on the My Projects page.
+
 Ordered by what blocks what. Do 1 first; it gates the video and the submission.
 
 ## 1. Redeploy prod (BLOCKER) 🚨
