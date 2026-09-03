@@ -79,7 +79,7 @@ Ten register up front; the three marked **(phased)** appear only once the page's
 | `scan_market` | **Audit a whole local market** — auto-discover via a query, or a URL list |
 | `verify_journey` | Mystery-shop a site: could an agent actually **book / buy / quote / contact**, or where does it get stuck? |
 | `generate_fixes` | **Create** ready-to-ship JSON-LD + optimized meta from the site's real content |
-| `preview_impact` | Project the score **if the fixes were applied** (e.g. 31 → 83) |
+| `preview_impact` | Project the score **if the fixes were applied** (e.g. 61 → 89) |
 | `verify_fix` *(phased)* | Re-fetch a site live and **prove** the score actually changed |
 | `export_report` *(phased)* | Emit a shareable Markdown report of the whole workspace |
 | `analyze_gaps` *(phased)* | What the market leaders share that a target site lacks |
@@ -124,7 +124,7 @@ No authentication required.
    - `audit_website` with `url: "example.com"` — then watch the **"Agent tools live on this page"** panel: `verify_fix` and `export_report` light up the instant this first audit lands
    - `check_webmcp` with `url: "example.com"` — the studio scoring a site on the WebMCP standard itself
    - `generate_fixes` with `url: "example.com"` — ready-to-paste JSON-LD
-   - `preview_impact` with `url: "example.com"` — the 31 → 83 projection
+   - `preview_impact` with `url: "example.com"` — the before → after projection (example.com: 19 → 71)
    - `export_report` — get the full Markdown report
 
 **Option B — ChatGPT in-app browser**
@@ -139,7 +139,7 @@ npm install
 npm run dev      # http://localhost:3000
 # or a production build:
 npm run build && npm start
-npm test         # 56 unit tests: pure audit/score/generate logic + WebMCP tool phasing
+npm test         # 57 unit tests: pure audit/score/generate logic + WebMCP tool phasing
 ```
 
 ### Optional environment variables

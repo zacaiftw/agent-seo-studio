@@ -47,22 +47,30 @@ shape WebMCP was designed for.
 The unlock is a **chained, comparative investigation that ends in a repair** —
 something the person couldn't script and a chatbot couldn't do:
 
-> *"Audit my site, compare it to my three competitors, then generate the fixes and
-> show me how much my AI-search score would improve if I applied them."*
+> *"Audit a11yproject.com, compare it against css-tricks.com and
+> smashingmagazine.com, rank us for AI-search readiness, then generate the fixes
+> and show me the projected score."*
 
-That's the agent orchestrating `audit_website` ×4, `compare_sites`,
-`generate_fixes`, and `preview_impact` — with the human watching each result land
-and steering. The finale isn't a critique, it's a **repair**: the agent generates
-ready-to-ship JSON-LD and optimized meta tags from the site's real content, and
-projects the score climbing (e.g. 31 → 83) if they're applied. The human copies
-the artifacts straight into their site. No generic SEO tool exposes that to *your*
-agent, and no chatbot can do it — the browser can't make those cross-origin
-fetches, and the fixes are grounded in HTML only the page's server could read.
+That's the agent orchestrating `audit_website` ×3, `compare_sites`,
+`generate_fixes`, and `preview_impact` in one turn — with the human watching each
+result land in a shared on-screen workspace and steering. The finale isn't a
+critique, it's a **repair**: the agent generates ready-to-ship JSON-LD and
+optimized meta tags from the site's real content, and projects the score climbing
+(a11yproject.com goes **61 → 89**) if they're applied. The human copies the
+artifacts straight into their site.
+
+No generic SEO tool exposes that to *your* agent, and no chatbot can do it — the
+browser can't make those cross-origin fetches (CORS blocks them), and the fixes are
+grounded in HTML only the page's own server could read. And because the tools phase
+in with page state (`verify_fix` and `export_report` appear the moment the first
+audit lands; `analyze_gaps` after a market scan), an agent that re-reads the tool
+list mid-investigation finds new actions that weren't there a step ago — the
+page's available actions change as the page does.
 The repair is something neither the human nor the agent could produce alone.
 
 ### How we implemented WebMCP
 
-Six tools are registered client-side against `document.modelContext` in
+**13 tools** are registered client-side against `document.modelContext` in
 `src/lib/register-tools.ts`. Each calls one server route (`/api/audit`) that does
 the cross-origin fetch + measurement, then mutates a shared React workspace through
 a small `StudioBridge` seam so the tool layer never touches React directly. The
@@ -70,88 +78,75 @@ core registration is the standard `document.modelContext.registerTool({ name,
 description, inputSchema, execute })` shape; `execute` returns the MCP
 `{ content: [{ type: "text", text }] }` result.
 
-The eight tools: `audit_website`, `check_schema`, `score_geo`, `suggest_fixes`,
-`compare_sites`, `generate_fixes`, `preview_impact`, `export_report`. The
-generation tools are provider-agnostic (OpenAI or Anthropic) with a deterministic
-fallback, so the demo always produces valid output and never fabricates facts.
-There's an SSRF guard on the server fetch (blocks private/metadata IPs, re-checks
-every redirect hop) and 20 unit tests on the pure logic.
+The tools: `audit_website`, `check_schema`, `check_webmcp`, `score_geo`,
+`suggest_fixes`, `compare_sites`, `scan_market`, `verify_journey`,
+`generate_fixes`, `preview_impact`, `verify_fix`, `analyze_gaps`, `export_report`.
+
+Beyond the basic shape, we lean into the standard:
+
+- **State-dependent tools.** `verify_fix` and `export_report` register the moment
+  the first audit lands; `analyze_gaps` after a market scan. An agent that
+  re-reads the tool list finds actions that weren't there before — the page's
+  actions change with page state.
+- **`readOnlyHint: true`** on every tool (they measure remote sites, never mutate
+  them), so an agent can chain audits and comparisons without stopping to ask.
+- **No-throw contract.** A wrapper turns any unexpected failure into a descriptive
+  text result instead of an opaque rejection, so a stalled fetch never stalls the
+  agent — "loose schema, strict code."
+- **Zero-JS declarative on-ramp.** The audit form also carries
+  `toolname` / `tooldescription` / `toolparamdescription` / `toolautosubmit`
+  attributes and answers the agent via `event.respondWith()`, so the action is
+  agent-callable even before our JS `registerTool` bootstrap runs.
+- **WebMCP → MCP bridge + origin-trial scaffold** (`/bridge`) so the same tools
+  reach agents outside a WebMCP-native browser.
+- **`check_webmcp`** audits whether *another* site is WebMCP-ready — a WebMCP tool
+  that measures WebMCP readiness, honest about confidence (a static server fetch
+  can't run JS that registers tools at runtime, and it says so).
+
+A **live agent-usage dashboard** (`/api/telemetry`) counts every tool call by
+engine — named-action call volume, success rate, latency — the WebMCP-exclusive
+metric a static SEO tool can't produce. The generation tools are provider-agnostic
+(OpenAI or Anthropic) with a deterministic fallback, so the demo always produces
+valid output and never fabricates facts. There's an SSRF guard on the server fetch
+(blocks private/metadata IPs, re-checks every redirect hop) and **57 unit tests**
+on the pure logic.
 
 ### Testing instructions for judges
 
 No auth required. **Chrome 149+:** enable `chrome://flags/#enable-webmcp-testing`,
 open the live URL (top-right badge should read "WebMCP connected"), then drive the
 tools via the Model Context Tool Inspector extension or your agent. **ChatGPT
-in-app browser:** open the URL and ask *"audit example.com and ai-ftw.com, compare
-them, and give me the fixes."* The page also works manually — type a URL, click
-Audit — so the UI is visible even without WebMCP.
+in-app browser:** open the URL and ask *"audit a11yproject.com, compare it against
+css-tricks.com and smashingmagazine.com, rank us, then generate the fixes and show
+the projected score."* The page also works fully by hand — type your site into
+"Check my site", pick a goal, and read the four-tab report — so the UI is visible
+even without WebMCP.
 
 ---
 
-## Demo video script (< 3 minutes)
+## Demo video
 
-> Record in Chrome 149+ with the flag on and the Model Context Tool Inspector
-> installed, OR in ChatGPT's in-app browser. Keep it under 3:00. Times are targets.
+Full script, storyboard, the reproducible demo cast, and per-clip shot list live in
+**`VIDEO-SCRIPT.md`**. The `edit.sh` pipeline assembles the raw clips into a
+< 3:00 MP4 (cuts dead air, burns on-screen text, optional narration track).
 
-**[0:00–0:20] — The problem (talk over the app's landing screen)**
-> "When you ask an AI agent whether your website is ready for AI search, it just
-> guesses — it can't actually fetch your site from the browser or read your
-> structured data. This is Agent SEO Studio. It gives your agent real tools to
-> audit any site, and everything the agent does shows up right here, where I can
-> watch and steer."
-
-*(Point at the green "WebMCP connected" badge.)*
-> "See this badge — WebMCP is connected, so my agent can drive this page."
-
-**[0:20–0:50] — Single audit (run `audit_website` with `example.com`)**
-> "I'll have the agent audit a site."
-
-*(Run `audit_website` → `{ "url": "example.com" }`. A card appears in the workspace.)*
-> "It fetched the site server-side, measured load speed, structured data, meta
-> tags, mobile-friendliness — and dropped a scored card into my workspace. That
-> 31-out-of-100 is a real measurement, not a guess."
-
-**[0:50–1:40] — The unlock: chained comparison (run `compare_sites`)**
-> "Here's what you couldn't do before. I'll ask the agent to compare that site
-> against a strong one and rank them."
-
-*(Run `compare_sites` → `{ "urls": ["ai-ftw.com", "example.com"] }`. Both rank and
-land in the workspace.)*
-> "Two sites, audited and ranked by AI-search readiness, side by side in my
-> workspace. The agent orchestrated multiple fetches and a comparison — and I saw
-> every result as it happened. A chatbot can't do this; the browser blocks those
-> cross-origin fetches. The page's WebMCP tools are what make it possible."
-
-**[1:40–2:20] — The repair: create, don't just criticize (run `generate_fixes` then `preview_impact`)**
-> "Now the part that matters — it doesn't stop at criticism, it fixes the site."
-
-*(Run `generate_fixes` → `{ "url": "example.com" }`. The Ready-to-ship panel appears.)*
-> "The agent generated complete JSON-LD structured data and optimized meta tags
-> from the site's real content — copy-paste ready."
-
-*(Run `preview_impact` → `{ "url": "example.com" }`. Point at the 31 → 83 panel.)*
-> "And here's the payoff: if I apply these fixes, this site's AI-search readiness
-> goes from 31 to 83 — a 52-point jump, projected live. The human and the agent
-> just repaired the site together."
-
-**[2:20–2:50] — How it's built**
-> "Under the hood, every action on this page is a `document.modelContext.
-> registerTool` call — eight tools, all open source and MIT-licensed. They call one
-> server route that does the measurement and generation, and the results flow into
-> a shared workspace I control."
-
-**[2:50–3:00] — Close**
-> "Agent SEO Studio — where you and your agent audit the web together. Thanks for
-> watching."
+Headline flow: `a11yproject.com` audited → compared against `css-tricks.com` (94)
+and `smashingmagazine.com` (27) → ranked → fixed → projected **61 → 89**, the human
+watching the live agent-usage counter climb the whole time.
 
 ---
 
 ## Pre-submission checklist
 
+- [ ] **Redeploy prod to match `main`** — the deployed build was stale (old
+  two-line form, no live agent-usage panel). Verify the landing page shows the
+  green "Agent usage — live" panel and "Agent tools live on this page — 10/13"
+  before recording or submitting. See `SHIP-CHECKLIST.md`.
 - [x] Live URL public, no auth wall — https://agent-seo-studio.vercel.app
 - [x] Public repo with MIT license detectable in About — github.com/zacaiftw/agent-seo-studio
 - [x] Required `document.modelContext.registerTool` snippet in repo (README + register-tools.ts)
-- [x] WebMCP verified: badge green, `getTools()` returns 8 tools in Chrome 149+
-- [ ] Record & upload < 3-min YouTube demo (public, with audio)
+- [x] WebMCP verified: badge green, `getTools()` returns 13 tools in Chrome 149+
+- [x] 57 unit tests passing (`npm test`)
+- [ ] Record & upload < 3-min YouTube demo (public, with audio) — see `VIDEO-SCRIPT.md`
+- [ ] Paste the YouTube link into this file's header
 - [ ] Fill Devpost submission form with the text above
-- [ ] (Optional) Execute a tool via the Inspector on camera for the video
