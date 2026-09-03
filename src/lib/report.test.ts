@@ -18,7 +18,7 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     hasViewport: true, hasCanonical: true, imgCount: 0, imgMissingAlt: 0, jsonLdBlocks: 1,
     jsonLdTypes: ["LocalBusiness"], ogTags: { title: true, description: true, image: true },
     agentReady: false, webmcp: { rung: "none", confidence: "none", signals: [], method: "static" }, detected: { city: null, region: null, businessType: null }, affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
-    noindex: false, likelyClientRendered: false, textSample: "s", ...over,
+    noindex: false, likelyClientRendered: false, textSample: "s", techStack: [], crawlability: { robotsTxt: null, sitemapXml: null }, ...over,
   };
 }
 function entry(url: string, over: Partial<AuditFacts> = {}): MarketEntry {

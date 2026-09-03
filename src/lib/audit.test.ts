@@ -35,6 +35,8 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     noindex: false,
     likelyClientRendered: false,
     textSample: "We are a local business serving the community.",
+    techStack: [],
+    crawlability: { robotsTxt: null, sitemapXml: null },
     ...over,
   };
 }

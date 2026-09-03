@@ -33,6 +33,8 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     noindex: false,
     likelyClientRendered: false,
     textSample: "sample",
+    techStack: [],
+    crawlability: { robotsTxt: null, sitemapXml: null },
     ...over,
   };
 }

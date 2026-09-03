@@ -17,10 +17,10 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     ogTags: { title: true, description: true, image: true }, agentReady: false,
     webmcp: { rung: "none", confidence: "none", signals: [], method: "static" },
     detected: { city: null, region: null, businessType: null }, affordances: { forms: 0, emailInputs: 0, hasMailto: false, hasTel: false, signals: [] },
-    noindex: false, likelyClientRendered: false, textSample: "s", ...over,
+    noindex: false, likelyClientRendered: false, textSample: "s", techStack: [], crawlability: { robotsTxt: null, sitemapXml: null }, ...over,
   };
 }
-const wrap = (f: AuditFacts): AuditResult => ({ facts: f });
+const wrap = (f: AuditFacts): AuditResult => ({ facts: f, findings: [] });
 
 test("a WebMCP-ready site is the best outcome for any goal", () => {
   const r = runJourney(wrap(facts({ agentReady: true })), "book");

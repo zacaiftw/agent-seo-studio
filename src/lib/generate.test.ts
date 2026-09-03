@@ -34,6 +34,8 @@ function facts(over: Partial<AuditFacts> = {}): AuditFacts {
     noindex: false,
     likelyClientRendered: false,
     textSample: "Example Bakery bakes fresh sourdough and pastries in downtown daily.",
+    techStack: [],
+    crawlability: { robotsTxt: null, sitemapXml: null },
     ...over,
   };
 }
